@@ -1,0 +1,233 @@
+import type {
+  ConvictionResult,
+  ConvictionSignal,
+  InsiderTrade,
+  InstitutionalPosition,
+  PoliticianTrade,
+  PolymarketMarket,
+  SignalType,
+  Sector,
+} from '@/types';
+import { getTickerMeta } from '@/data/tickers';
+
+// Weights: insider trades carry the highest weight per user request.
+const WEIGHTS: Record<SignalType, number> = {
+  insider: 0.40,
+  institution: 0.25,
+  congress: 0.20,
+  polymarket: 0.15,
+};
+
+export interface ConvictionInput {
+  insiders: InsiderTrade[];
+  institutions: InstitutionalPosition[];
+  politicians: PoliticianTrade[];
+  polymarket: PolymarketMarket[];
+}
+
+function clampScore(n: number): number {
+  return Math.max(0, Math.min(100, Math.round(n)));
+}
+
+function insiderSignal(trades: InsiderTrade[]): { score: number; detail: string } | null {
+  if (trades.length === 0) return null;
+  const buys = trades.filter((t) => t.transactionType === 'BUY');
+  const sells = trades.filter((t) => t.transactionType === 'SELL');
+  if (buys.length === 0 && sells.length === 0) return null;
+
+  const totalBuyValue = buys.reduce((sum, t) => sum + t.value, 0);
+  const totalSellValue = sells.reduce((sum, t) => sum + t.value, 0);
+  const netValue = totalBuyValue - totalSellValue;
+
+  // Base score from buy count and value magnitude
+  let score = 0;
+  if (buys.length > 0) {
+    score += Math.min(40, buys.length * 12);
+  }
+  // Value magnitude bonus (log scale)
+  if (totalBuyValue > 0) {
+    score += Math.min(35, Math.log10(totalBuyValue + 1) * 7);
+  }
+  // Penalize sells
+  if (sells.length > 0) {
+    score -= Math.min(30, sells.length * 10);
+  }
+  // Net direction
+  if (netValue < 0) {
+    score -= 15;
+  }
+
+  const detail =
+    buys.length > 0
+      ? `${buys.length} buy${buys.length > 1 ? 's' : ''} · $${formatCompact(totalBuyValue)}`
+      : `${sells.length} sell${sells.length > 1 ? 's' : ''} · $${formatCompact(totalSellValue)}`;
+
+  return { score: clampScore(score), detail };
+}
+
+function institutionSignal(
+  positions: InstitutionalPosition[],
+): { score: number; detail: string } | null {
+  if (positions.length === 0) return null;
+  const bullish = positions.filter(
+    (p) => p.action === 'new' || p.action === 'increased',
+  );
+  const bearish = positions.filter(
+    (p) => p.action === 'decreased' || p.action === 'exited',
+  );
+  if (bullish.length === 0 && bearish.length === 0) return null;
+
+  let score = 0;
+  // Multiple funds piling in is the strongest signal
+  score += Math.min(45, bullish.length * 15);
+  // "New position" carries extra weight
+  const newCount = bullish.filter((p) => p.action === 'new').length;
+  score += newCount * 8;
+  // Penalize exits / decreases
+  score -= Math.min(35, bearish.length * 12);
+
+  const detail = `${bullish.length} bullish · ${bearish.length} bearish move${bearish.length !== 1 ? 's' : ''}`;
+  return { score: clampScore(score), detail };
+}
+
+function congressSignal(
+  trades: PoliticianTrade[],
+): { score: number; detail: string } | null {
+  if (trades.length === 0) return null;
+  const buys = trades.filter((t) => t.transactionType === 'BUY');
+  const sells = trades.filter((t) => t.transactionType === 'SELL');
+  if (buys.length === 0 && sells.length === 0) return null;
+
+  let score = 0;
+  score += Math.min(40, buys.length * 14);
+  score -= Math.min(30, sells.length * 12);
+
+  const detail = `${buys.length} buy${buys.length !== 1 ? 's' : ''} · ${sells.length} sell${sells.length !== 1 ? 's' : ''}`;
+  return { score: clampScore(score), detail };
+}
+
+function polymarketSignal(
+  markets: PolymarketMarket[],
+): { score: number; detail: string } | null {
+  if (markets.length === 0) return null;
+  // Bullish if yes price > 0.55 on positive-outcome questions
+  let score = 0;
+  let bullishCount = 0;
+  for (const m of markets) {
+    if (m.yesPrice >= 0.6) {
+      score += Math.min(20, (m.yesPrice - 0.5) * 40);
+      bullishCount++;
+    } else if (m.yesPrice <= 0.3) {
+      score -= Math.min(15, (0.5 - m.yesPrice) * 30);
+    }
+  }
+
+  const detail = `${markets.length} market${markets.length !== 1 ? 's' : ''} · ${bullishCount} bullish`;
+  return { score: clampScore(score), detail };
+}
+
+function formatCompact(n: number): string {
+  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)}B`;
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(0)}K`;
+  return `${n}`;
+}
+
+export function computeConviction(input: ConvictionInput): ConvictionResult[] {
+  const tickerMap = new Map<
+    string,
+    {
+      insiders: InsiderTrade[];
+      institutions: InstitutionalPosition[];
+      politicians: PoliticianTrade[];
+      polymarket: PolymarketMarket[];
+    }
+  >();
+
+  const addToMap = (
+    key: string,
+    item: InsiderTrade | InstitutionalPosition | PoliticianTrade | PolymarketMarket,
+    field: 'insiders' | 'institutions' | 'politicians' | 'polymarket',
+  ) => {
+    const entry = tickerMap.get(key) ?? {
+      insiders: [],
+      institutions: [],
+      politicians: [],
+      polymarket: [],
+    };
+    entry[field].push(item as never);
+    tickerMap.set(key, entry);
+  };
+
+  for (const t of input.insiders) addToMap(t.ticker, t, 'insiders');
+  for (const p of input.institutions) addToMap(p.ticker, p, 'institutions');
+  for (const p of input.politicians) addToMap(p.ticker, p, 'politicians');
+  for (const m of input.polymarket) {
+    for (const ticker of m.relatedTickers) {
+      addToMap(ticker, m, 'polymarket');
+    }
+  }
+
+  const results: ConvictionResult[] = [];
+
+  for (const [ticker, data] of tickerMap) {
+    const meta = getTickerMeta(ticker);
+    const signals: ConvictionSignal[] = [];
+    const signalsActive: SignalType[] = [];
+
+    const ins = insiderSignal(data.insiders);
+    if (ins) {
+      signals.push({ type: 'insider', score: ins.score, detail: ins.detail });
+      signalsActive.push('insider');
+    }
+    const inst = institutionSignal(data.institutions);
+    if (inst) {
+      signals.push({ type: 'institution', score: inst.score, detail: inst.detail });
+      signalsActive.push('institution');
+    }
+    const cong = congressSignal(data.politicians);
+    if (cong) {
+      signals.push({ type: 'congress', score: cong.score, detail: cong.detail });
+      signalsActive.push('congress');
+    }
+    const poly = polymarketSignal(data.polymarket);
+    if (poly) {
+      signals.push({ type: 'polymarket', score: poly.score, detail: poly.detail });
+      signalsActive.push('polymarket');
+    }
+
+    if (signals.length === 0) continue;
+
+    // Weighted total — only count active signals, re-normalize weights
+    let totalScore = 0;
+    let totalWeight = 0;
+    for (const sig of signals) {
+      const w = WEIGHTS[sig.type];
+      totalScore += sig.score * w;
+      totalWeight += w;
+    }
+    const normalizedScore = totalWeight > 0 ? (totalScore / totalWeight) : 0;
+
+    results.push({
+      ticker,
+      name: meta.name,
+      sector: meta.sector,
+      market: meta.market,
+      totalScore: clampScore(normalizedScore),
+      signals,
+      signalsActive,
+    });
+  }
+
+  results.sort((a, b) => b.totalScore - a.totalScore);
+  return results;
+}
+
+export function getSectorTopPick(
+  results: ConvictionResult[],
+  sector: Sector,
+): ConvictionResult | null {
+  const filtered = results.filter((r) => r.sector === sector);
+  if (filtered.length === 0) return null;
+  return filtered[0];
+}
