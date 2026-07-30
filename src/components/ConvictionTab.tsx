@@ -3,27 +3,30 @@ import { Activity, ChevronRight, Calendar } from 'lucide-react';
 import type { ConvictionResult, Sector } from '@/types';
 import { SECTORS } from '@/types';
 import { computeConviction, getSectorTopPick } from '@/lib/conviction';
-import { INSIDER_TRADES } from '@/data/insiders';
-import { INSTITUTIONAL_POSITIONS } from '@/data/institutions';
-import { POLITICIAN_TRADES } from '@/data/politicians';
-import { POLYMARKET_MARKETS } from '@/data/polymarket';
+import { api } from '@/lib/api';
+import { useApi } from '@/lib/useApi';
 import { getEarningsDate, daysUntilEarnings } from '@/data/earnings';
-import { SignalIcons, MarketTag, TrendArrow } from '@/components/ui';
+import { SignalIcons, MarketTag, TrendArrow, LoadingCards, ErrorCard } from '@/components/ui';
 import { TickerDetailDrawer } from '@/components/TickerDetailDrawer';
 
 export function ConvictionTab() {
   const [selected, setSelected] = useState<ConvictionResult | null>(null);
+  const insiders = useApi(api.insiders);
+  const institutions = useApi(api.institutions);
+  const polymarket = useApi(api.markets);
 
-  const results = useMemo(
-    () =>
-      computeConviction({
-        insiders: INSIDER_TRADES,
-        institutions: INSTITUTIONAL_POSITIONS,
-        politicians: POLITICIAN_TRADES,
-        polymarket: POLYMARKET_MARKETS,
-      }),
-    [],
-  );
+  const loading = insiders.loading || institutions.loading || polymarket.loading;
+  const error = insiders.error || institutions.error || polymarket.error;
+  const ready = insiders.data && institutions.data && polymarket.data;
+
+  const results = useMemo(() => {
+    if (!ready) return [];
+    return computeConviction({
+      insiders: insiders.data!.data,
+      institutions: institutions.data!.data,
+      polymarket: polymarket.data!.data,
+    });
+  }, [ready, insiders.data, institutions.data, polymarket.data]);
 
   const top3 = results.slice(0, 3);
   const topTickers = new Set(top3.map((r) => r.ticker));
@@ -35,6 +38,18 @@ export function ConvictionTab() {
         <Activity className="h-5 w-5 text-teal-400" />
         <h2 className="text-lg font-semibold text-ink-50">Conviction Scores</h2>
       </div>
+
+      {loading && <LoadingCards />}
+      {error && (
+        <ErrorCard
+          message={error}
+          onRetry={() => {
+            insiders.refetch();
+            institutions.refetch();
+            polymarket.refetch();
+          }}
+        />
+      )}
 
       {/* Top 3 High-Conviction */}
       <div>
@@ -75,13 +90,19 @@ export function ConvictionTab() {
         </div>
       </div>
 
-      {results.length === 0 && (
+      {ready && results.length === 0 && (
         <div className="py-12 text-center text-sm text-ink-400">
           No conviction signals detected yet.
         </div>
       )}
 
-      <TickerDetailDrawer result={selected} onClose={() => setSelected(null)} />
+      <TickerDetailDrawer
+        result={selected}
+        onClose={() => setSelected(null)}
+        insiders={insiders.data?.data ?? []}
+        institutions={institutions.data?.data ?? []}
+        polymarket={polymarket.data?.data ?? []}
+      />
     </div>
   );
 }

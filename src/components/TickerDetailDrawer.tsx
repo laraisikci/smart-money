@@ -1,23 +1,28 @@
 import { useEffect } from 'react';
 import { X, Calendar, Percent, TrendingDown } from 'lucide-react';
-import type { ConvictionResult } from '@/types';
+import type { ConvictionResult, InsiderTrade, InstitutionalPosition, PolymarketMarket } from '@/types';
 import { getEarningsDate, daysUntilEarnings } from '@/data/earnings';
 import { getShortInterest, shortInterestLevel } from '@/data/shortInterest';
 import { getTickerMeta } from '@/data/tickers';
-import { INSIDER_TRADES } from '@/data/insiders';
-import { INSTITUTIONAL_POSITIONS } from '@/data/institutions';
-import { POLITICIAN_TRADES } from '@/data/politicians';
-import { POLYMARKET_MARKETS } from '@/data/polymarket';
 import { SignalIcons, ActionBadge, MarketTag, FundAvatar } from '@/components/ui';
-import { FUND_MAP } from '@/data/institutions';
+import { FUND_MAP } from '@/data/funds';
 import { formatCurrency, formatShares, formatDate, timeAgo } from '@/lib/format';
 
 interface TickerDetailDrawerProps {
   result: ConvictionResult | null;
   onClose: () => void;
+  insiders: InsiderTrade[];
+  institutions: InstitutionalPosition[];
+  polymarket: PolymarketMarket[];
 }
 
-export function TickerDetailDrawer({ result, onClose }: TickerDetailDrawerProps) {
+export function TickerDetailDrawer({
+  result,
+  onClose,
+  insiders: allInsiders,
+  institutions: allInstitutions,
+  polymarket: allPolymarket,
+}: TickerDetailDrawerProps) {
   useEffect(() => {
     if (result) {
       document.body.style.overflow = 'hidden';
@@ -35,10 +40,9 @@ export function TickerDetailDrawer({ result, onClose }: TickerDetailDrawerProps)
   const shortInt = getShortInterest(result.ticker);
   const siLevel = shortInt ? shortInterestLevel(shortInt.shortInterestPct) : null;
 
-  const insiders = INSIDER_TRADES.filter((t) => t.ticker === result.ticker);
-  const institutions = INSTITUTIONAL_POSITIONS.filter((p) => p.ticker === result.ticker);
-  const politicians = POLITICIAN_TRADES.filter((p) => p.ticker === result.ticker);
-  const polymarkets = POLYMARKET_MARKETS.filter((m) => m.relatedTickers.includes(result.ticker));
+  const insiders = allInsiders.filter((t) => t.ticker === result.ticker);
+  const institutions = allInstitutions.filter((p) => p.ticker === result.ticker);
+  const polymarkets = allPolymarket.filter((m) => m.relatedTickers.includes(result.ticker));
 
   return (
     <>
@@ -211,34 +215,6 @@ export function TickerDetailDrawer({ result, onClose }: TickerDetailDrawerProps)
                     </div>
                   );
                 })}
-              </div>
-            </div>
-          )}
-
-          {/* Politician trades */}
-          {politicians.length > 0 && (
-            <div>
-              <h4 className="mb-2 text-xs font-medium uppercase tracking-wider text-ink-400">
-                Politician Trades
-              </h4>
-              <div className="space-y-2">
-                {politicians.map((p) => (
-                  <div key={p.id} className="card p-3">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-xs font-medium text-ink-200">{p.politicianName}</p>
-                        <p className="text-2xs text-ink-500">{p.body}</p>
-                      </div>
-                      <ActionBadge action={p.transactionType} />
-                    </div>
-                    <div className="mt-2 flex items-center justify-between border-t border-ink-700/40 pt-2">
-                      <span className="text-2xs text-ink-500">
-                        Traded {formatDate(p.tradeDate)}
-                      </span>
-                      <span className="font-mono text-2xs text-ink-300">{p.amountRange}</span>
-                    </div>
-                  </div>
-                ))}
               </div>
             </div>
           )}

@@ -3,25 +3,24 @@ import type {
   ConvictionSignal,
   InsiderTrade,
   InstitutionalPosition,
-  PoliticianTrade,
   PolymarketMarket,
   SignalType,
   Sector,
 } from '@/types';
 import { getTickerMeta } from '@/data/tickers';
 
-// Weights: insider trades carry the highest weight per user request.
+// Weights: insider trades carry the highest weight per user request. The congress/parliament
+// signal was dropped (no reliable free structured data source exists) and its 0.20 share was
+// redistributed proportionally across the remaining three signals.
 const WEIGHTS: Record<SignalType, number> = {
-  insider: 0.40,
-  institution: 0.25,
-  congress: 0.20,
-  polymarket: 0.15,
+  insider: 0.50,
+  institution: 0.30,
+  polymarket: 0.20,
 };
 
 export interface ConvictionInput {
   insiders: InsiderTrade[];
   institutions: InstitutionalPosition[];
-  politicians: PoliticianTrade[];
   polymarket: PolymarketMarket[];
 }
 
@@ -90,22 +89,6 @@ function institutionSignal(
   return { score: clampScore(score), detail };
 }
 
-function congressSignal(
-  trades: PoliticianTrade[],
-): { score: number; detail: string } | null {
-  if (trades.length === 0) return null;
-  const buys = trades.filter((t) => t.transactionType === 'BUY');
-  const sells = trades.filter((t) => t.transactionType === 'SELL');
-  if (buys.length === 0 && sells.length === 0) return null;
-
-  let score = 0;
-  score += Math.min(40, buys.length * 14);
-  score -= Math.min(30, sells.length * 12);
-
-  const detail = `${buys.length} buy${buys.length !== 1 ? 's' : ''} · ${sells.length} sell${sells.length !== 1 ? 's' : ''}`;
-  return { score: clampScore(score), detail };
-}
-
 function polymarketSignal(
   markets: PolymarketMarket[],
 ): { score: number; detail: string } | null {
@@ -139,20 +122,18 @@ export function computeConviction(input: ConvictionInput): ConvictionResult[] {
     {
       insiders: InsiderTrade[];
       institutions: InstitutionalPosition[];
-      politicians: PoliticianTrade[];
       polymarket: PolymarketMarket[];
     }
   >();
 
   const addToMap = (
     key: string,
-    item: InsiderTrade | InstitutionalPosition | PoliticianTrade | PolymarketMarket,
-    field: 'insiders' | 'institutions' | 'politicians' | 'polymarket',
+    item: InsiderTrade | InstitutionalPosition | PolymarketMarket,
+    field: 'insiders' | 'institutions' | 'polymarket',
   ) => {
     const entry = tickerMap.get(key) ?? {
       insiders: [],
       institutions: [],
-      politicians: [],
       polymarket: [],
     };
     entry[field].push(item as never);
@@ -161,7 +142,6 @@ export function computeConviction(input: ConvictionInput): ConvictionResult[] {
 
   for (const t of input.insiders) addToMap(t.ticker, t, 'insiders');
   for (const p of input.institutions) addToMap(p.ticker, p, 'institutions');
-  for (const p of input.politicians) addToMap(p.ticker, p, 'politicians');
   for (const m of input.polymarket) {
     for (const ticker of m.relatedTickers) {
       addToMap(ticker, m, 'polymarket');
@@ -184,11 +164,6 @@ export function computeConviction(input: ConvictionInput): ConvictionResult[] {
     if (inst) {
       signals.push({ type: 'institution', score: inst.score, detail: inst.detail });
       signalsActive.push('institution');
-    }
-    const cong = congressSignal(data.politicians);
-    if (cong) {
-      signals.push({ type: 'congress', score: cong.score, detail: cong.detail });
-      signalsActive.push('congress');
     }
     const poly = polymarketSignal(data.polymarket);
     if (poly) {

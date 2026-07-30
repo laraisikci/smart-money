@@ -17,7 +17,7 @@ export type Sector =
     'Materials',
   ];
 
-export type SignalType = 'insider' | 'institution' | 'congress' | 'polymarket';
+export type SignalType = 'insider' | 'institution' | 'polymarket';
 
 export interface TickerMeta {
   symbol: string;
@@ -59,16 +59,16 @@ export interface InstitutionalPosition {
   quarter: string;
 }
 
-export interface PoliticianTrade {
-  id: string;
-  politicianName: string;
-  country: 'EU' | 'US';
-  body: string;
-  ticker: string;
-  transactionType: 'BUY' | 'SELL';
-  amountRange: string;
-  tradeDate: string;
-  disclosureDate: string;
+export interface EuropeanRegulatorLink {
+  country: string;
+  regulator: string;
+  description: string;
+  url: string;
+}
+
+export interface OfficialSourceLink {
+  label: string;
+  url: string;
 }
 
 export interface PolymarketMarket {

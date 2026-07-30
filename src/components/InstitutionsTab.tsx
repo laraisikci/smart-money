@@ -1,9 +1,11 @@
 import { useMemo, useState } from 'react';
 import { Building2, TrendingUp, ArrowUpRight } from 'lucide-react';
-import { INSTITUTIONAL_POSITIONS, FUNDS, FUND_MAP } from '@/data/institutions';
+import { FUNDS, FUND_MAP } from '@/data/funds';
+import { api } from '@/lib/api';
+import { useApi } from '@/lib/useApi';
 import type { InstitutionalPosition } from '@/types';
 import { formatCurrency, formatShares, formatPct, timeAgo } from '@/lib/format';
-import { ActionBadge, FundAvatar, MarketTag } from '@/components/ui';
+import { ActionBadge, FundAvatar, MarketTag, LoadingCards, ErrorCard } from '@/components/ui';
 import { getTickerMeta } from '@/data/tickers';
 
 type FilterMode = 'all' | 'bullish';
@@ -11,9 +13,11 @@ type FilterMode = 'all' | 'bullish';
 export function InstitutionsTab() {
   const [activeFund, setActiveFund] = useState<string>('ALL');
   const [filterMode, setFilterMode] = useState<FilterMode>('bullish');
+  const { data, loading, error, refetch } = useApi(api.institutions);
+  const positions = useMemo(() => data?.data ?? [], [data]);
 
   const filtered = useMemo(() => {
-    let list = [...INSTITUTIONAL_POSITIONS];
+    let list = [...positions];
     if (activeFund !== 'ALL') {
       list = list.filter((p) => p.fundSlug === activeFund);
     }
@@ -23,11 +27,11 @@ export function InstitutionsTab() {
     return list.sort(
       (a, b) => new Date(b.filingDate).getTime() - new Date(a.filingDate).getTime(),
     );
-  }, [activeFund, filterMode]);
+  }, [positions, activeFund, filterMode]);
 
   // Most bought this quarter — tickers appearing most frequently as new/increased
   const mostBought = useMemo(() => {
-    const bullish = INSTITUTIONAL_POSITIONS.filter(
+    const bullish = positions.filter(
       (p) => p.action === 'new' || p.action === 'increased',
     );
     const counts = new Map<string, { count: number; funds: Set<string> }>();
@@ -46,7 +50,7 @@ export function InstitutionsTab() {
       }))
       .sort((a, b) => b.fundCount - a.fundCount || b.count - a.count)
       .slice(0, 5);
-  }, []);
+  }, [positions]);
 
   return (
     <div className="space-y-5">
@@ -55,13 +59,18 @@ export function InstitutionsTab() {
         <h2 className="text-lg font-semibold text-ink-50">Institutions</h2>
       </div>
 
-      {/* Sample data notice */}
-      <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2">
-        <p className="text-2xs text-amber-300/80">
-          Sample data — based on recent 13F filing patterns. Live EDGAR integration pending.
+      <div className="rounded-lg border border-teal-500/20 bg-teal-500/5 px-3 py-2">
+        <p className="text-2xs text-teal-300/80">
+          Live SEC EDGAR 13F data · holdings limited to companies in our tracked ticker list
+          {data && data.failedFunds.length > 0 && ` · couldn't load: ${data.failedFunds.join(', ')}`}
         </p>
       </div>
 
+      {loading && <LoadingCards />}
+      {error && <ErrorCard message={error} onRetry={refetch} />}
+
+      {data && (
+        <>
       {/* Most bought this quarter */}
       <div>
         <div className="mb-2 flex items-center gap-1.5">
@@ -150,6 +159,8 @@ export function InstitutionsTab() {
         <div className="py-12 text-center text-sm text-ink-400">
           No positions match the current filter.
         </div>
+      )}
+        </>
       )}
     </div>
   );

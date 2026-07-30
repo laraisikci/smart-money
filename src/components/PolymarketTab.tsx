@@ -1,18 +1,19 @@
 import { useMemo, useState } from 'react';
 import { BarChart3, Flame } from 'lucide-react';
-import { POLYMARKET_MARKETS } from '@/data/polymarket';
+import { api } from '@/lib/api';
+import { useApi } from '@/lib/useApi';
 import { formatCurrency, timeAgo } from '@/lib/format';
-import { MarketTag } from '@/components/ui';
+import { MarketTag, LoadingCards, ErrorCard } from '@/components/ui';
 import { getTickerMeta } from '@/data/tickers';
 
 export function PolymarketTab() {
   const [minVolume, setMinVolume] = useState(0);
+  const { data, loading, error, refetch } = useApi(api.markets);
 
   const filtered = useMemo(() => {
-    return POLYMARKET_MARKETS.filter((m) => m.volume >= minVolume).sort(
-      (a, b) => b.volume - a.volume,
-    );
-  }, [minVolume]);
+    const markets = data?.data ?? [];
+    return markets.filter((m) => m.volume >= minVolume).sort((a, b) => b.volume - a.volume);
+  }, [data, minVolume]);
 
   return (
     <div className="space-y-5">
@@ -37,6 +38,9 @@ export function PolymarketTab() {
           </button>
         ))}
       </div>
+
+      {loading && <LoadingCards />}
+      {error && <ErrorCard message={error} onRetry={refetch} />}
 
       {/* Market cards */}
       <div className="space-y-3">
@@ -109,7 +113,7 @@ export function PolymarketTab() {
         })}
       </div>
 
-      {filtered.length === 0 && (
+      {data && filtered.length === 0 && (
         <div className="py-12 text-center text-sm text-ink-400">
           No markets match the current filter.
         </div>

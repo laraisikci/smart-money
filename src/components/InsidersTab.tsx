@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react';
-import { Filter, UserCircle2 } from 'lucide-react';
-import { INSIDER_TRADES } from '@/data/insiders';
+import { Filter, UserCircle2, ExternalLink } from 'lucide-react';
+import { api } from '@/lib/api';
+import { useApi } from '@/lib/useApi';
 import { getTickerMeta } from '@/data/tickers';
 import { formatCurrency, formatShares, timeAgo } from '@/lib/format';
-import { ActionBadge, MarketTag } from '@/components/ui';
+import { ActionBadge, MarketTag, LoadingCards, ErrorCard } from '@/components/ui';
 
 const THRESHOLDS = [
   { label: 'Any', value: 0 },
@@ -12,14 +13,50 @@ const THRESHOLDS = [
   { label: '$1M+', value: 1_000_000 },
 ];
 
+function EuropeanDisclosuresCard() {
+  const { data } = useApi(api.european);
+  if (!data) return null;
+
+  return (
+    <div className="card p-4">
+      <p className="text-xs font-medium text-ink-200">European Insider Disclosures</p>
+      <p className="mt-1 text-2xs text-ink-500">
+        EU insider (PDMR) filings are published as individual notices by each national
+        regulator, not a structured feed. Check them directly:
+      </p>
+      <div className="mt-3 space-y-1.5">
+        {data.data.map((r) => (
+          <a
+            key={r.regulator}
+            href={r.url}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center justify-between rounded-lg border border-ink-700/60 bg-ink-800/40 px-3 py-2 transition-colors hover:border-ink-600"
+          >
+            <div>
+              <p className="text-xs font-medium text-ink-200">
+                {r.regulator} <span className="text-2xs text-ink-500">· {r.country}</span>
+              </p>
+              <p className="text-2xs text-ink-500">{r.description}</p>
+            </div>
+            <ExternalLink className="h-3.5 w-3.5 shrink-0 text-ink-500" />
+          </a>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function InsidersTab() {
   const [threshold, setThreshold] = useState(100_000);
+  const { data, loading, error, refetch } = useApi(api.insiders);
 
   const filtered = useMemo(() => {
-    return INSIDER_TRADES.filter((t) => t.value >= threshold).sort(
-      (a, b) => new Date(b.filingDate).getTime() - new Date(a.filingDate).getTime(),
-    );
-  }, [threshold]);
+    const trades = data?.data ?? [];
+    return trades
+      .filter((t) => t.value >= threshold)
+      .sort((a, b) => new Date(b.filingDate).getTime() - new Date(a.filingDate).getTime());
+  }, [data, threshold]);
 
   const activeThreshold = THRESHOLDS.find((t) => t.value === threshold);
 
@@ -29,6 +66,8 @@ export function InsidersTab() {
         <UserCircle2 className="h-5 w-5 text-teal-400" />
         <h2 className="text-lg font-semibold text-ink-50">Insider Trades</h2>
       </div>
+
+      <EuropeanDisclosuresCard />
 
       {/* Dollar value filter */}
       <div>
@@ -51,14 +90,23 @@ export function InsidersTab() {
         </div>
       </div>
 
-      <p className="text-xs text-ink-500">
-        Showing {filtered.length} trade{filtered.length !== 1 ? 's' : ''}{' '}
-        {activeThreshold && activeThreshold.value > 0 && `above ${activeThreshold.label}`}
-      </p>
+      {loading && <LoadingCards />}
+      {error && <ErrorCard message={error} onRetry={refetch} />}
 
-      {/* Trade cards */}
-      <div className="space-y-3">
-        {filtered.map((trade) => {
+      {data && (
+        <>
+          <p className="text-xs text-ink-500">
+            Showing {filtered.length} trade{filtered.length !== 1 ? 's' : ''}{' '}
+            {activeThreshold && activeThreshold.value > 0 && `above ${activeThreshold.label}`}
+            {' · '}
+            <span className="text-ink-600">
+              {data.coverage.resolved.length} of {data.coverage.resolved.length + data.coverage.unresolved.length} tracked tickers have SEC filers
+            </span>
+          </p>
+
+          {/* Trade cards */}
+          <div className="space-y-3">
+            {filtered.map((trade) => {
           const meta = getTickerMeta(trade.ticker);
           return (
             <div
@@ -108,14 +156,16 @@ export function InsidersTab() {
                 <span className="text-2xs text-ink-500">{meta.sector}</span>
               </div>
             </div>
-          );
-        })}
-      </div>
+              );
+            })}
+          </div>
 
-      {filtered.length === 0 && (
-        <div className="py-12 text-center text-sm text-ink-400">
-          No trades match the current filter.
-        </div>
+          {filtered.length === 0 && (
+            <div className="py-12 text-center text-sm text-ink-400">
+              No trades match the current filter.
+            </div>
+          )}
+        </>
       )}
     </div>
   );

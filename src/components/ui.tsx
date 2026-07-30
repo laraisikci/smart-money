@@ -1,4 +1,4 @@
-import { TrendingUp, TrendingDown, Building2, Landmark, BarChart3 } from 'lucide-react';
+import { TrendingUp, TrendingDown, Building2, BarChart3, AlertTriangle } from 'lucide-react';
 import type { SignalType } from '@/types';
 
 export const SIGNAL_META: Record<
@@ -7,9 +7,38 @@ export const SIGNAL_META: Record<
 > = {
   insider: { icon: TrendingUp, label: 'Insider', color: 'text-teal-300', bg: 'bg-teal-400/15' },
   institution: { icon: Building2, label: 'Institution', color: 'text-sky-300', bg: 'bg-sky-400/15' },
-  congress: { icon: Landmark, label: 'Politician', color: 'text-amber-300', bg: 'bg-amber-400/15' },
   polymarket: { icon: BarChart3, label: 'Polymarket', color: 'text-violet-300', bg: 'bg-violet-400/15' },
 };
+
+export function LoadingCards({ count = 3 }: { count?: number }) {
+  return (
+    <div className="space-y-3">
+      {Array.from({ length: count }).map((_, i) => (
+        <div key={i} className="card shimmer h-24 w-full" />
+      ))}
+    </div>
+  );
+}
+
+export function ErrorCard({ message, onRetry }: { message: string; onRetry?: () => void }) {
+  return (
+    <div className="card flex items-start gap-3 border-bear-500/30 bg-bear-500/5 p-4">
+      <AlertTriangle className="h-4.5 w-4.5 shrink-0 text-bear-400" />
+      <div className="flex-1">
+        <p className="text-xs font-medium text-bear-300">Couldn't load live data</p>
+        <p className="mt-0.5 text-2xs text-ink-500">{message}</p>
+        {onRetry && (
+          <button
+            onClick={onRetry}
+            className="mt-2 text-2xs font-medium text-teal-300 hover:text-teal-200"
+          >
+            Retry
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
 
 interface SignalIconsProps {
   signals: SignalType[];
