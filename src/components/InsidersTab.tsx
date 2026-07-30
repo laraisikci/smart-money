@@ -127,7 +127,7 @@ export function InsidersTab() {
                   <div>
                     <div className="flex items-center gap-2">
                       <span className="font-mono text-sm font-bold text-ink-50">{trade.ticker}</span>
-                      <MarketTag market={trade.market} />
+                      <MarketTag market={trade.market} currency={meta.currency} />
                       <ActionBadge action={trade.transactionType} />
                     </div>
                     <p className="mt-0.5 text-xs text-ink-300">{trade.insiderName}</p>

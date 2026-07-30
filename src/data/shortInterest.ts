@@ -26,7 +26,7 @@ export const SHORT_INTEREST: ShortInterest[] = [
   { ticker: 'BMW', shortInterestPct: 7.8, float: 600_000_000, daysToCover: 8.5, source: 'sample' },
   { ticker: 'VOW3', shortInterestPct: 10.2, float: 300_000_000, daysToCover: 11.0, source: 'sample' },
   { ticker: 'BAS', shortInterestPct: 5.3, float: 900_000_000, daysToCover: 5.8, source: 'sample' },
-  { ticker: 'AIRP', shortInterestPct: 2.7, float: 480_000_000, daysToCover: 3.0, source: 'sample' },
+  { ticker: 'AI', shortInterestPct: 2.7, float: 480_000_000, daysToCover: 3.0, source: 'sample' },
   { ticker: 'XOM', shortInterestPct: 3.4, float: 4_400_000_000, daysToCover: 3.8, source: 'sample' },
   { ticker: 'JNJ', shortInterestPct: 1.1, float: 2_400_000_000, daysToCover: 1.4, source: 'sample' },
   { ticker: 'AMZN', shortInterestPct: 0.9, float: 10_000_000_000, daysToCover: 1.2, source: 'sample' },

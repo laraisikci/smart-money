@@ -59,7 +59,7 @@ export function TickerDetailDrawer({
           <div className="mx-auto h-1 w-10 rounded-full bg-ink-600 absolute left-1/2 top-2 translate-x-[-50%]" />
           <div className="flex items-center gap-2">
             <span className="font-mono text-lg font-bold text-ink-50">{result.ticker}</span>
-            <MarketTag market={meta.market} />
+            <MarketTag market={meta.market} currency={meta.currency} />
           </div>
           <button
             onClick={onClose}

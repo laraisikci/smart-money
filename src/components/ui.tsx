@@ -101,7 +101,8 @@ export function ActionBadge({
   );
 }
 
-export function MarketTag({ market }: { market: 'EU' | 'US' }) {
+export function MarketTag({ market, currency }: { market: 'EU' | 'US'; currency?: string }) {
+  const label = market === 'EU' ? (currency ?? 'EU') : market;
   return (
     <span
       className={`inline-flex items-center rounded px-1.5 py-0.5 text-2xs font-bold ${
@@ -110,7 +111,7 @@ export function MarketTag({ market }: { market: 'EU' | 'US' }) {
           : 'bg-ink-600/40 text-ink-300'
       }`}
     >
-      {market}
+      {label}
     </span>
   );
 }

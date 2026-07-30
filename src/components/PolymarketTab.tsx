@@ -96,7 +96,7 @@ export function PolymarketTab() {
                         className="inline-flex items-center gap-1 rounded-md bg-ink-800/60 px-2 py-0.5"
                       >
                         <span className="font-mono text-2xs font-bold text-ink-200">{ticker}</span>
-                        <MarketTag market={meta.market} />
+                        <MarketTag market={meta.market} currency={meta.currency} />
                       </span>
                     );
                   })}

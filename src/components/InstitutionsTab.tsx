@@ -179,7 +179,7 @@ function PositionCard({ pos }: { pos: InstitutionalPosition }) {
           <div>
             <div className="flex items-center gap-2">
               <span className="font-mono text-sm font-bold text-ink-50">{pos.ticker}</span>
-              <MarketTag market={meta.market} />
+              <MarketTag market={meta.market} currency={meta.currency} />
               <ActionBadge action={pos.action} />
             </div>
             <p className="mt-0.5 truncate text-xs text-ink-300">{pos.companyName}</p>

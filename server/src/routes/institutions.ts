@@ -3,7 +3,7 @@ import { TICKERS } from '../data/tickers.js';
 import { FUNDS } from '../data/funds.js';
 import { cikToPadded, listFilings, findInformationTableFile, fetchFilingDocXml } from '../lib/edgarFilings.js';
 import { xmlParser, toArray, num } from '../lib/xml.js';
-import { matchIssuerName } from '../lib/nameMatch.js';
+import { buildIssuerMatcher } from '../lib/nameMatch.js';
 import type { InstitutionalPosition, InstitutionalAction } from '../types.js';
 
 interface HoldingRow {
@@ -19,6 +19,10 @@ function quarterLabel(reportDate: string): string {
   return `Q${q} ${year}`;
 }
 
+// Built once per request (not per row/filing) — some filers report thousands of holding rows,
+// and re-normalizing all ~160 tracked tickers on every single row would be wasteful.
+const issuerMatcher = buildIssuerMatcher(TICKERS);
+
 async function fetchHoldings(cikPadded: string, accessionNoDash: string): Promise<Map<string, HoldingRow>> {
   const infoFile = await findInformationTableFile(cikPadded, accessionNoDash);
   if (!infoFile) return new Map();
@@ -30,7 +34,7 @@ async function fetchHoldings(cikPadded: string, accessionNoDash: string): Promis
   for (const row of rows) {
     const issuerName = row?.nameOfIssuer;
     if (!issuerName) continue;
-    const match = matchIssuerName(issuerName, TICKERS);
+    const match = issuerMatcher.match(issuerName);
     if (!match) continue;
 
     const shares = num(row?.shrsOrPrnAmt?.sshPrnamt) ?? 0;

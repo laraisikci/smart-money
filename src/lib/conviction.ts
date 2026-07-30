@@ -187,6 +187,7 @@ export function computeConviction(input: ConvictionInput): ConvictionResult[] {
       ticker,
       name: meta.name,
       sector: meta.sector,
+      currency: meta.currency,
       market: meta.market,
       totalScore: clampScore(normalizedScore),
       signals,

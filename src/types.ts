@@ -5,7 +5,10 @@ export type Sector =
   | 'Healthcare'
   | 'Consumer'
   | 'Industrials'
-  | 'Materials';
+  | 'Materials'
+  | 'Telecom'
+  | 'Utilities'
+  | 'RealEstate';
 
   export const SECTORS: Sector[] = [
     'Tech',
@@ -15,15 +18,25 @@ export type Sector =
     'Consumer',
     'Industrials',
     'Materials',
+    'Telecom',
+    'Utilities',
+    'RealEstate',
   ];
 
 export type SignalType = 'insider' | 'institution' | 'polymarket';
+
+// Currency of each ticker's primary listing exchange. Nearly all Eurozone constituents (DAX,
+// CAC 40, IBEX 35, AEX, and most of EuroStoxx 50) trade in EUR; the rest reflect each company's
+// actual primary listing — e.g. Shell and Unilever both moved their primary listing to London
+// (GBP) even though they're still dual-listed on Euronext Amsterdam.
+export type Currency = 'USD' | 'EUR' | 'GBP' | 'CHF' | 'DKK' | 'SEK' | 'NOK';
 
 export interface TickerMeta {
   symbol: string;
   name: string;
   sector: Sector;
   market: 'EU' | 'US';
+  currency: Currency;
 }
 
 export interface InsiderTrade {
@@ -93,6 +106,7 @@ export interface ConvictionResult {
   name: string;
   sector: Sector;
   market: 'EU' | 'US';
+  currency: Currency;
   totalScore: number;
   signals: ConvictionSignal[];
   signalsActive: SignalType[];

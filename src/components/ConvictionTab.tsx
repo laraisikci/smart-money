@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Activity, ChevronRight, Calendar } from 'lucide-react';
+import { Activity, ChevronRight, Calendar, Globe2 } from 'lucide-react';
 import type { ConvictionResult, Sector } from '@/types';
 import { SECTORS } from '@/types';
 import { computeConviction, getSectorTopPick } from '@/lib/conviction';
@@ -32,6 +32,11 @@ export function ConvictionTab() {
   const topTickers = new Set(top3.map((r) => r.ticker));
   const remaining = results.filter((r) => !topTickers.has(r.ticker));
 
+  const europeanMovers = useMemo(
+    () => results.filter((r) => r.market === 'EU').slice(0, 5),
+    [results],
+  );
+
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-2">
@@ -49,6 +54,28 @@ export function ConvictionTab() {
             polymarket.refetch();
           }}
         />
+      )}
+
+      {/* European Movers — EU-tagged tickers only, ranked separately from the global list */}
+      {ready && europeanMovers.length > 0 && (
+        <div>
+          <div className="mb-3 flex items-center gap-1.5">
+            <Globe2 className="h-3.5 w-3.5 text-teal-400" />
+            <p className="text-xs font-medium uppercase tracking-wider text-ink-400">
+              European Movers
+            </p>
+          </div>
+          <div className="space-y-3">
+            {europeanMovers.map((r, i) => (
+              <ConvictionCard
+                key={`eu-${r.ticker}`}
+                result={r}
+                rank={i + 1}
+                onClick={() => setSelected(r)}
+              />
+            ))}
+          </div>
+        </div>
       )}
 
       {/* Top 3 High-Conviction */}
@@ -147,7 +174,7 @@ function ConvictionCard({
           <div>
             <div className="flex items-center gap-2">
               <span className="font-mono text-base font-bold text-ink-50">{result.ticker}</span>
-              <MarketTag market={result.market} />
+              <MarketTag market={result.market} currency={result.currency} />
             </div>
             <p className="mt-0.5 truncate text-xs text-ink-400">{result.name}</p>
           </div>
@@ -205,7 +232,7 @@ function SectorRow({
         <div>
           <div className="flex items-center gap-2">
             <span className="font-mono text-sm font-bold text-ink-100">{result.ticker}</span>
-            <MarketTag market={result.market} />
+            <MarketTag market={result.market} currency={result.currency} />
           </div>
           <p className="truncate text-2xs text-ink-500">{result.name}</p>
         </div>
