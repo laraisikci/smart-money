@@ -39,8 +39,10 @@ every `/api/*` route, which will silently return HTML instead of JSON.
 
 To set it: in the Railway dashboard, open the service → **Settings → Source → Root Directory** →
 set it to `server` → redeploy. `server/railway.json` (committed in this repo) then takes over
-and tells Railway exactly how to build and start it (`npm run build`, `npm run start`,
-health-checked at `/health`) — no other config needed once Root Directory is correct.
+and tells Railway exactly how to build and start it (`npm run build`, then `node dist/index.js`
+directly rather than through `npm start` — avoids an extra process layer between Railway and the
+app that can delay signal forwarding in containers — health-checked at `/health`) — no other
+config needed once Root Directory is correct.
 
 Via CLI instead of the dashboard:
 
