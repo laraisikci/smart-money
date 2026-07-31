@@ -13,7 +13,7 @@ const CORS_ORIGIN = process.env.CORS_ORIGIN ?? 'http://localhost:5173';
 const app = express();
 app.use(cors({ origin: CORS_ORIGIN }));
 
-app.get('/health', (_req, res) => res.json({ ok: true }));
+app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
 app.use('/api/insiders', insidersRouter());
 app.use('/api/institutions', institutionsRouter());
