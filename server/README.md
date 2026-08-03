@@ -8,7 +8,7 @@ client — neither is possible calling these APIs directly from the browser.
 
 | Route | Source | Notes |
 |---|---|---|
-| `GET /health` | — | Returns `{"status":"ok"}`. Used by the keep-alive workflow (see below), also handy for manual uptime checks |
+| `GET /health` | — | Returns `{"status":"ok"}`. Polled by UptimeRobot as a keep-alive/uptime check |
 | `GET /api/insiders` | SEC EDGAR Form 4 | Only tickers with a resolvable SEC CIK (see `src/data/euAdrMap.ts`) — most EU issuers don't file with the SEC at all |
 | `GET /api/institutions` | SEC EDGAR 13F-HR | 10 funds, diffed against the prior quarter's filing for new/increased/decreased/exited |
 | `GET /api/markets` | Polymarket Gamma API | Public, no key |
@@ -53,8 +53,8 @@ Via CLI instead of the dashboard:
 3. Set env vars: `railway variables set SEC_USER_AGENT="SmartMoneyDashboard you@example.com" CORS_ORIGIN=https://your-frontend-domain.vercel.app`
 4. `railway up`
 5. Note the deployed URL, then set it as `VITE_API_BASE_URL` in the frontend's Vercel project settings.
-6. Set up the keep-alive ping (below) with the same URL so Railway doesn't scale the service to
-   zero for inactivity.
+6. Point an UptimeRobot monitor (or similar) at `<deployed URL>/health` on a ~10 minute interval
+   so Railway doesn't scale the service to zero for inactivity.
 
 **Sanity check after any deploy:** `curl https://your-railway-url/health` should return
 `{"status":"ok"}`. If it returns an HTML document instead, Root Directory is still wrong.
@@ -62,19 +62,10 @@ Via CLI instead of the dashboard:
 ## Keep-alive ping
 
 Railway's usage-based billing scales idle services to zero, which means a quiet backend can take
-a few seconds to cold-start on the next request. `.github/workflows/keep-alive.yml` pings
-`/health` every 10 minutes via GitHub Actions' scheduler to keep it warm, and fails (triggering a
-GitHub notification) if the backend doesn't respond — a free uptime check as a side effect.
-
-To wire it up: in the GitHub repo, go to **Settings → Secrets and variables → Actions →
-Variables** and add `RAILWAY_BACKEND_URL` set to the deployed backend's base URL (e.g.
-`https://smart-money-server-production.up.railway.app`, no trailing slash, no `/health` suffix —
-the workflow appends that itself). You can trigger it manually from the Actions tab
-(`workflow_dispatch`) to test before waiting for the schedule.
-
-Note: GitHub's cron scheduler is best-effort, not exact — during periods of high load, scheduled
-runs can be delayed by several minutes. That's fine here since the goal is "traffic every so
-often," not precise timing.
+a few seconds to cold-start on the next request. An [UptimeRobot](https://uptimerobot.com) monitor
+pings `/health` every 10 minutes to keep it warm, and alerts if the backend stops responding — a
+free uptime check as a side effect. (Previously this was a GitHub Actions workflow —
+`.github/workflows/keep-alive.yml` — removed once UptimeRobot took over the same job.)
 
 ## Known limitations
 
