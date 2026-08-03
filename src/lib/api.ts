@@ -36,6 +36,8 @@ export interface MarketsResponse {
 export interface EuropeanResponse {
   data: EuropeanRegulatorLink[];
   note: string;
+  majorHoldings: EuropeanRegulatorLink[];
+  majorHoldingsNote: string;
 }
 
 export interface CongressResponse {

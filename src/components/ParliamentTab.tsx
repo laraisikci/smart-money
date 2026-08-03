@@ -1,4 +1,4 @@
-import { Landmark, ExternalLink, AlertCircle } from 'lucide-react';
+import { Landmark, ExternalLink, AlertCircle, Percent } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useApi } from '@/lib/useApi';
 import { LoadingCards, ErrorCard } from '@/components/ui';
@@ -52,6 +52,44 @@ export function ParliamentTab() {
               </a>
             ))}
           </div>
+        )}
+      </div>
+
+      {/* Major shareholder notifications — real disclosure regime, no structured feed exists */}
+      <div>
+        <div className="mb-3 flex items-center gap-1.5">
+          <Percent className="h-3.5 w-3.5 text-teal-400" />
+          <p className="text-xs font-medium uppercase tracking-wider text-ink-400">
+            Major Shareholder Notifications
+          </p>
+        </div>
+        {eu.data && (
+          <>
+            <p className="mb-3 text-2xs text-ink-500">{eu.data.majorHoldingsNote}</p>
+            <div className="space-y-3">
+              {eu.data.majorHoldings.map((r) => (
+                <a
+                  key={r.regulator}
+                  href={r.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="card flex animate-fade-in-up items-start justify-between gap-3 p-4 transition-all duration-200 hover:border-ink-600"
+                >
+                  <div className="flex items-start gap-3">
+                    <span className="text-xl leading-none">{FLAGS[r.country] ?? '🇪🇺'}</span>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-bold text-ink-50">{r.regulator}</span>
+                        <span className="text-2xs text-ink-500">{r.country}</span>
+                      </div>
+                      <p className="mt-0.5 text-xs text-ink-400">{r.description}</p>
+                    </div>
+                  </div>
+                  <ExternalLink className="mt-0.5 h-4 w-4 shrink-0 text-ink-500" />
+                </a>
+              ))}
+            </div>
+          </>
         )}
       </div>
 

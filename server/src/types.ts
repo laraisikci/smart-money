@@ -27,18 +27,6 @@ export interface InstitutionalPosition {
   quarter: string;
 }
 
-export interface PoliticianTrade {
-  id: string;
-  politicianName: string;
-  country: 'EU' | 'US';
-  body: string;
-  ticker: string;
-  transactionType: 'BUY' | 'SELL';
-  amountRange: string;
-  tradeDate: string;
-  disclosureDate: string;
-}
-
 export interface PolymarketMarket {
   id: string;
   question: string;
