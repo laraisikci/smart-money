@@ -9,8 +9,17 @@ import { getEarningsDate, daysUntilEarnings } from '@/data/earnings';
 import { SignalIcons, MarketTag, TrendArrow, LoadingCards, ErrorCard } from '@/components/ui';
 import { TickerDetailDrawer } from '@/components/TickerDetailDrawer';
 
+type MarketFilter = 'ALL' | 'EU' | 'US';
+const MARKET_FILTERS: { label: string; value: MarketFilter }[] = [
+  { label: 'All', value: 'ALL' },
+  { label: 'EU Only', value: 'EU' },
+  { label: 'US Only', value: 'US' },
+];
+
 export function ConvictionTab() {
   const [selected, setSelected] = useState<ConvictionResult | null>(null);
+  // Defaults to EU Only per how this app is actually used (Barcelona-based investing).
+  const [marketFilter, setMarketFilter] = useState<MarketFilter>('EU');
   const insiders = useApi(api.insiders, 'insiders');
   const institutions = useApi(api.institutions, 'institutions');
   const polymarket = useApi(api.markets, 'markets');
@@ -19,7 +28,7 @@ export function ConvictionTab() {
   const error = insiders.error || institutions.error || polymarket.error;
   const ready = insiders.data && institutions.data && polymarket.data;
 
-  const results = useMemo(() => {
+  const allResults = useMemo(() => {
     if (!ready) return [];
     return computeConviction({
       insiders: insiders.data!.data,
@@ -28,13 +37,21 @@ export function ConvictionTab() {
     });
   }, [ready, insiders.data, institutions.data, polymarket.data]);
 
+  const results = useMemo(
+    () => (marketFilter === 'ALL' ? allResults : allResults.filter((r) => r.market === marketFilter)),
+    [allResults, marketFilter],
+  );
+
   const top3 = results.slice(0, 3);
   const topTickers = new Set(top3.map((r) => r.ticker));
   const remaining = results.filter((r) => !topTickers.has(r.ticker));
 
+  // Only worth showing as a distinguishing subset when the view is otherwise mixed — with the
+  // EU Only filter active, everything below is already EU, so this section would just duplicate
+  // Top 3 / By Sector.
   const europeanMovers = useMemo(
-    () => results.filter((r) => r.market === 'EU').slice(0, 5),
-    [results],
+    () => (marketFilter === 'ALL' ? results.filter((r) => r.market === 'EU').slice(0, 5) : []),
+    [results, marketFilter],
   );
 
   return (
@@ -42,6 +59,19 @@ export function ConvictionTab() {
       <div className="flex items-center gap-2">
         <Activity className="h-5 w-5 text-teal-400" />
         <h2 className="text-lg font-semibold text-ink-50">Conviction Scores</h2>
+      </div>
+
+      {/* Market filter */}
+      <div className="flex gap-2 overflow-x-auto scrollbar-hide">
+        {MARKET_FILTERS.map((f) => (
+          <button
+            key={f.value}
+            onClick={() => setMarketFilter(f.value)}
+            className={`pill shrink-0 ${marketFilter === f.value ? 'pill-active' : 'pill-idle'}`}
+          >
+            {f.label}
+          </button>
+        ))}
       </div>
 
       {loading && <LoadingCards />}
