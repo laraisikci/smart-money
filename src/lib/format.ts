@@ -28,13 +28,23 @@ export function formatDate(iso: string): string {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-export function timeAgo(iso: string): string {
-  const now = new Date('2026-07-29');
+// Days between an ISO date and right now. Used both for display (timeAgo) and for recency
+// filtering, so both stay consistent with each other and with the real clock — this used to be
+// computed against a hardcoded reference date left over from the mock-data prototype, which
+// silently produced wrong "time ago" text once real (and much older) filing dates showed up.
+export function daysAgo(iso: string): number {
+  const now = Date.now();
   const d = new Date(iso);
-  const diff = Math.floor((now.getTime() - d.getTime()) / (1000 * 60 * 60 * 24));
+  return Math.floor((now - d.getTime()) / (1000 * 60 * 60 * 24));
+}
+
+export function timeAgo(iso: string): string {
+  const diff = daysAgo(iso);
   if (diff <= 0) return 'today';
   if (diff === 1) return '1 day ago';
   if (diff < 7) return `${diff} days ago`;
   if (diff < 30) return `${Math.floor(diff / 7)}w ago`;
-  return `${Math.floor(diff / 30)}mo ago`;
+  if (diff < 365) return `${Math.floor(diff / 30)}mo ago`;
+  const years = Math.floor(diff / 365);
+  return `${years}y ago`;
 }

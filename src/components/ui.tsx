@@ -48,31 +48,39 @@ interface SignalIconsProps {
 export function SignalIcons({ signals, size = 'sm' }: SignalIconsProps) {
   const dim = size === 'sm' ? 'h-5 w-5' : 'h-6 w-6';
   const iconDim = size === 'sm' ? 'h-3 w-3' : 'h-3.5 w-3.5';
+  const total = Object.keys(SIGNAL_META).length;
   return (
-    <div className="flex items-center gap-1">
-      {(Object.keys(SIGNAL_META) as SignalType[]).map((type) => {
-        const meta = SIGNAL_META[type];
-        const Icon = meta.icon;
-        const active = signals.includes(type);
-        if (!active) {
+    <div className="flex items-center gap-1.5">
+      <div className="flex items-center gap-1">
+        {(Object.keys(SIGNAL_META) as SignalType[]).map((type) => {
+          const meta = SIGNAL_META[type];
+          const Icon = meta.icon;
+          const active = signals.includes(type);
+          if (!active) {
+            return (
+              <div
+                key={type}
+                title={`${meta.label}: no data`}
+                className={`${dim} flex items-center justify-center rounded-full bg-ink-700/40 text-ink-600`}
+              >
+                <Icon className={iconDim} />
+              </div>
+            );
+          }
           return (
             <div
               key={type}
-              className={`${dim} flex items-center justify-center rounded-full bg-ink-700/40 text-ink-600`}
+              title={`${meta.label}: active`}
+              className={`${dim} flex items-center justify-center rounded-full ${meta.bg} ${meta.color}`}
             >
               <Icon className={iconDim} />
             </div>
           );
-        }
-        return (
-          <div
-            key={type}
-            className={`${dim} flex items-center justify-center rounded-full ${meta.bg} ${meta.color}`}
-          >
-            <Icon className={iconDim} />
-          </div>
-        );
-      })}
+        })}
+      </div>
+      <span className="text-2xs font-medium text-ink-500">
+        {signals.length}/{total}
+      </span>
     </div>
   );
 }

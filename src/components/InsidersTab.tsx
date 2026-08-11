@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react';
-import { Filter, UserCircle2, ExternalLink } from 'lucide-react';
+import { Filter, UserCircle2, ExternalLink, Calendar } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useApi } from '@/lib/useApi';
 import { getTickerMeta } from '@/data/tickers';
-import { formatCurrency, formatShares, timeAgo } from '@/lib/format';
+import { formatCurrency, formatShares, timeAgo, daysAgo } from '@/lib/format';
 import { ActionBadge, MarketTag, LoadingCards, ErrorCard } from '@/components/ui';
 
 const THRESHOLDS = [
@@ -12,6 +12,14 @@ const THRESHOLDS = [
   { label: '$500k+', value: 500_000 },
   { label: '$1M+', value: 1_000_000 },
 ];
+
+// null = no cutoff ("Any"). 90 days is the default so stale filings (which shouldn't count
+// toward "meaningful recent buys") don't show up unless explicitly asked for.
+const DATE_RANGES: { label: string; days: number | null }[] = [
+  { label: 'Last 90 days', days: 90 },
+  { label: 'Any', days: null },
+];
+const DEFAULT_DATE_RANGE_DAYS = 90;
 
 function EuropeanDisclosuresCard() {
   const { data } = useApi(api.european);
@@ -49,14 +57,20 @@ function EuropeanDisclosuresCard() {
 
 export function InsidersTab() {
   const [threshold, setThreshold] = useState(100_000);
-  const { data, loading, error, refetch } = useApi(api.insiders);
+  const [dateRangeDays, setDateRangeDays] = useState<number | null>(DEFAULT_DATE_RANGE_DAYS);
+  const { data, loading, error, refetch } = useApi(api.insiders, 'insiders');
 
   const filtered = useMemo(() => {
     const trades = data?.data ?? [];
     return trades
       .filter((t) => t.value >= threshold)
+      .filter((t) => dateRangeDays === null || daysAgo(t.filingDate) <= dateRangeDays)
       .sort((a, b) => new Date(b.filingDate).getTime() - new Date(a.filingDate).getTime());
-  }, [data, threshold]);
+  }, [data, threshold, dateRangeDays]);
+
+  // Distinguishes "nothing in the default 90-day window" from "no trades match your other
+  // filters" — the former gets a specific, actionable message rather than a generic empty state.
+  const emptyDueToDateRange = filtered.length === 0 && dateRangeDays === DEFAULT_DATE_RANGE_DAYS;
 
   const activeThreshold = THRESHOLDS.find((t) => t.value === threshold);
 
@@ -68,6 +82,27 @@ export function InsidersTab() {
       </div>
 
       <EuropeanDisclosuresCard />
+
+      {/* Date range filter */}
+      <div>
+        <div className="mb-2 flex items-center gap-1.5">
+          <Calendar className="h-3.5 w-3.5 text-ink-400" />
+          <span className="text-xs font-medium text-ink-400">Date range</span>
+        </div>
+        <div className="flex gap-2 overflow-x-auto scrollbar-hide">
+          {DATE_RANGES.map((r) => (
+            <button
+              key={r.label}
+              onClick={() => setDateRangeDays(r.days)}
+              className={`pill shrink-0 ${
+                dateRangeDays === r.days ? 'pill-active' : 'pill-idle'
+              }`}
+            >
+              {r.label}
+            </button>
+          ))}
+        </div>
+      </div>
 
       {/* Dollar value filter */}
       <div>
@@ -98,6 +133,7 @@ export function InsidersTab() {
           <p className="text-xs text-ink-500">
             Showing {filtered.length} trade{filtered.length !== 1 ? 's' : ''}{' '}
             {activeThreshold && activeThreshold.value > 0 && `above ${activeThreshold.label}`}
+            {dateRangeDays !== null && ` in the last ${dateRangeDays} days`}
             {' · '}
             <span className="text-ink-600">
               {data.coverage.resolved.length} of {data.coverage.resolved.length + data.coverage.unresolved.length} tracked tickers have SEC filers
@@ -160,7 +196,25 @@ export function InsidersTab() {
             })}
           </div>
 
-          {filtered.length === 0 && (
+          {filtered.length === 0 && emptyDueToDateRange && (
+            <div className="py-12 text-center text-sm text-ink-400">
+              <p>
+                No significant insider buys in the last 90 days above $50k from C-suite
+                executives.
+              </p>
+              <p className="mt-2 text-xs text-ink-500">
+                Check back later, or{' '}
+                <button
+                  onClick={() => setDateRangeDays(null)}
+                  className="font-medium text-teal-300 hover:text-teal-200"
+                >
+                  lower the filter threshold
+                </button>{' '}
+                to see older filings.
+              </p>
+            </div>
+          )}
+          {filtered.length === 0 && !emptyDueToDateRange && (
             <div className="py-12 text-center text-sm text-ink-400">
               No trades match the current filter.
             </div>

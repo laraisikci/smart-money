@@ -8,7 +8,7 @@ import { getTickerMeta } from '@/data/tickers';
 
 export function PolymarketTab() {
   const [minVolume, setMinVolume] = useState(0);
-  const { data, loading, error, refetch } = useApi(api.markets);
+  const { data, loading, error, refetch } = useApi(api.markets, 'markets');
 
   const filtered = useMemo(() => {
     const markets = data?.data ?? [];

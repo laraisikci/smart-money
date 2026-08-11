@@ -13,7 +13,7 @@ type FilterMode = 'all' | 'bullish';
 export function InstitutionsTab() {
   const [activeFund, setActiveFund] = useState<string>('ALL');
   const [filterMode, setFilterMode] = useState<FilterMode>('bullish');
-  const { data, loading, error, refetch } = useApi(api.institutions);
+  const { data, loading, error, refetch } = useApi(api.institutions, 'institutions');
   const positions = useMemo(() => data?.data ?? [], [data]);
 
   const filtered = useMemo(() => {

@@ -11,9 +11,9 @@ import { TickerDetailDrawer } from '@/components/TickerDetailDrawer';
 
 export function ConvictionTab() {
   const [selected, setSelected] = useState<ConvictionResult | null>(null);
-  const insiders = useApi(api.insiders);
-  const institutions = useApi(api.institutions);
-  const polymarket = useApi(api.markets);
+  const insiders = useApi(api.insiders, 'insiders');
+  const institutions = useApi(api.institutions, 'institutions');
+  const polymarket = useApi(api.markets, 'markets');
 
   const loading = insiders.loading || institutions.loading || polymarket.loading;
   const error = insiders.error || institutions.error || polymarket.error;

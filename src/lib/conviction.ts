@@ -8,6 +8,12 @@ import type {
   Sector,
 } from '@/types';
 import { getTickerMeta } from '@/data/tickers';
+import { daysAgo } from '@/lib/format';
+
+// Matches the Insiders tab's default recency window. A trade older than this shouldn't silently
+// count toward conviction just because it happened to be the most recent thing SEC EDGAR had —
+// stale insider data is treated the same as no insider data, not as a live bullish signal.
+const INSIDER_MAX_AGE_DAYS = 90;
 
 // Insider buys carry the highest weight since /api/insiders now only returns curated,
 // meaningful signal (open-market purchases above $50k from CEO/CFO/COO/President/Chairman/
@@ -31,11 +37,14 @@ function clampScore(n: number): number {
   return Math.max(0, Math.min(100, Math.round(n)));
 }
 
-function insiderSignal(trades: InsiderTrade[]): { score: number; detail: string } | null {
+function insiderSignal(allTrades: InsiderTrade[]): { score: number; detail: string } | null {
   // /api/insiders only ever returns open-market purchases above $50k from a CEO/CFO/COO/
   // President/Chairman/Director — every trade here is already a meaningful buy, so there's
   // nothing to net against sells (none exist) and no reason to discount for volume the way the
-  // old buy/sell-mix version did.
+  // old buy/sell-mix version did. Stale trades (older than the recency window) are filtered out
+  // here rather than upstream, so this signal simply doesn't fire on old data instead of
+  // silently contributing a score based on something that happened years ago.
+  const trades = allTrades.filter((t) => daysAgo(t.filingDate) <= INSIDER_MAX_AGE_DAYS);
   if (trades.length === 0) return null;
 
   const totalValue = trades.reduce((sum, t) => sum + t.value, 0);

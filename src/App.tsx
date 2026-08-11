@@ -5,6 +5,7 @@ import { InsidersTab } from '@/components/InsidersTab';
 import { InstitutionsTab } from '@/components/InstitutionsTab';
 import { ParliamentTab } from '@/components/ParliamentTab';
 import { PolymarketTab } from '@/components/PolymarketTab';
+import { DataStatus } from '@/components/DataStatus';
 
 type TabId = 'conviction' | 'insiders' | 'institutions' | 'parliament' | 'polymarket';
 
@@ -33,10 +34,7 @@ function App() {
               <p className="text-2xs text-ink-500">Conviction Tracker</p>
             </div>
           </div>
-          <div className="flex items-center gap-1.5">
-            <span className="h-1.5 w-1.5 animate-pulse-soft rounded-full bg-bull-400" />
-            <span className="text-2xs text-ink-400">Live</span>
-          </div>
+          <DataStatus />
         </div>
       </header>
 
