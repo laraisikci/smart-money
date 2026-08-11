@@ -9,13 +9,16 @@ import type {
 } from '@/types';
 import { getTickerMeta } from '@/data/tickers';
 
-// Weights: insider trades carry the highest weight per user request. The congress/parliament
-// signal was dropped (no reliable free structured data source exists) and its 0.20 share was
-// redistributed proportionally across the remaining three signals.
+// Insider buys carry the highest weight since /api/insiders now only returns curated,
+// meaningful signal (open-market purchases above $50k from CEO/CFO/COO/President/Chairman/
+// Director) rather than a noisy mix of every Form 4 line — a filtered buy is worth more than an
+// unfiltered one. Institutional 13F activity gets more weight than Polymarket, which is a
+// softer, more speculative signal. There's no congress/parliament weight: that data source
+// doesn't exist (see /api/congress), so it was never part of this formula to begin with.
 const WEIGHTS: Record<SignalType, number> = {
   insider: 0.50,
-  institution: 0.30,
-  polymarket: 0.20,
+  institution: 0.35,
+  polymarket: 0.15,
 };
 
 export interface ConvictionInput {
@@ -29,38 +32,23 @@ function clampScore(n: number): number {
 }
 
 function insiderSignal(trades: InsiderTrade[]): { score: number; detail: string } | null {
+  // /api/insiders only ever returns open-market purchases above $50k from a CEO/CFO/COO/
+  // President/Chairman/Director — every trade here is already a meaningful buy, so there's
+  // nothing to net against sells (none exist) and no reason to discount for volume the way the
+  // old buy/sell-mix version did.
   if (trades.length === 0) return null;
-  const buys = trades.filter((t) => t.transactionType === 'BUY');
-  const sells = trades.filter((t) => t.transactionType === 'SELL');
-  if (buys.length === 0 && sells.length === 0) return null;
 
-  const totalBuyValue = buys.reduce((sum, t) => sum + t.value, 0);
-  const totalSellValue = sells.reduce((sum, t) => sum + t.value, 0);
-  const netValue = totalBuyValue - totalSellValue;
+  const totalValue = trades.reduce((sum, t) => sum + t.value, 0);
 
-  // Base score from buy count and value magnitude
+  // Log-scaled per trade, summed across trades so multiple insiders buying reinforces
+  // conviction rather than averaging out. Calibrated against $50k (the filter floor) through
+  // large buys: ~$50k -> ~14, ~$500k -> ~35, ~$1M -> ~41, ~$10M -> ~62, ~$50M -> ~76.
   let score = 0;
-  if (buys.length > 0) {
-    score += Math.min(40, buys.length * 12);
-  }
-  // Value magnitude bonus (log scale)
-  if (totalBuyValue > 0) {
-    score += Math.min(35, Math.log10(totalBuyValue + 1) * 7);
-  }
-  // Penalize sells
-  if (sells.length > 0) {
-    score -= Math.min(30, sells.length * 10);
-  }
-  // Net direction
-  if (netValue < 0) {
-    score -= 15;
+  for (const t of trades) {
+    score += Math.max(0, Math.log10(t.value) - 4) * 20.5;
   }
 
-  const detail =
-    buys.length > 0
-      ? `${buys.length} buy${buys.length > 1 ? 's' : ''} · $${formatCompact(totalBuyValue)}`
-      : `${sells.length} sell${sells.length > 1 ? 's' : ''} · $${formatCompact(totalSellValue)}`;
-
+  const detail = `${trades.length} buy${trades.length > 1 ? 's' : ''} · $${formatCompact(totalValue)}`;
   return { score: clampScore(score), detail };
 }
 

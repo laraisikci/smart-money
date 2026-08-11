@@ -57,6 +57,12 @@ export const MAJOR_HOLDINGS_LINKS: EuropeanRegulatorLink[] = [
     description: 'TR-1 major shareholding notifications under DTR5, crossing 3%, 5%, 10%+ voting rights (published via each company\'s chosen RIS, not hosted by the FCA)',
     url: 'https://www.fca.org.uk/markets/primary-markets/regulatory-disclosures/shareholding-notification-disclosure',
   },
+  {
+    country: 'Italy',
+    regulator: 'CONSOB',
+    description: 'Partecipazioni rilevanti — significant shareholding notifications crossing 3%, 5%, 10%+ under the TUF (being migrated to the new SH.I.N.E. portal in 2026)',
+    url: 'https://www.consob.it/web/area-pubblica/modalita-di-notifica-delle-partecipazioni-rilevanti',
+  },
 ];
 
 export const EUROPEAN_REGULATOR_LINKS: EuropeanRegulatorLink[] = [
@@ -83,5 +89,11 @@ export const EUROPEAN_REGULATOR_LINKS: EuropeanRegulatorLink[] = [
     regulator: 'FCA',
     description: 'Financial Conduct Authority — PDMR notifications under UK MAR',
     url: 'https://www.fca.org.uk',
+  },
+  {
+    country: 'Italy',
+    regulator: 'CONSOB',
+    description: 'Commissione Nazionale per le Società e la Borsa — internal dealing disclosures under Art. 114 TUF',
+    url: 'https://www.consob.it',
   },
 ];

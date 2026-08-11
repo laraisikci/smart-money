@@ -5,8 +5,21 @@ import { listFilings, primaryDocBasename, fetchFilingDocXml } from '../lib/edgar
 import { xmlParser, toArray, num } from '../lib/xml.js';
 import type { InsiderTrade } from '../types.js';
 
-const FILINGS_PER_TICKER = 5;
+// Genuine open-market C-suite/director buys above $50k are much rarer than the routine RSU
+// vesting/withholding noise that dominates most Form 4s (empirically: ~1 qualifying buy per 14
+// open-market purchases across our whole tracked universe in a 10-filing window) — this looks
+// back further per ticker than before (was 5) to have a reasonable chance of surfacing real
+// qualifying buys rather than coming back empty for tickers whose recent filings are all
+// routine. Even so, expect this endpoint to return few results most of the time — that's
+// inherent to what makes an open-market insider buy a meaningful signal in the first place.
+const FILINGS_PER_TICKER = 20;
 const TRANSACTIONS_PER_FILING = 6;
+const MIN_TRADE_VALUE = 50_000;
+
+// Matches SEC's own officerTitle free text (e.g. "Chief Executive Officer", "Chairman and CEO",
+// "President and COO", "Co-CEO", "Chair of the Board") against the CEO/CFO/COO/President/
+// Chairman roles the app cares about.
+const QUALIFYING_OFFICER_ROLE = /chief executive officer|\bceo\b|chief financial officer|\bcfo\b|chief operating officer|\bcoo\b|\bpresident\b|\bchair(?:man|woman|person)?\b/i;
 
 interface ResponseCacheEntry {
   expires: number;
@@ -14,17 +27,46 @@ interface ResponseCacheEntry {
 }
 let responseCache: ResponseCacheEntry | null = null;
 
-function insiderTitleFrom(rel: {
+interface RoleClassification {
+  title: string;
+  qualifies: boolean;
+}
+
+// Filters to the roles the "meaningful buys" feature cares about: CEO, CFO, COO, President,
+// Chairman, or Director. SEC's officerTitle field is free text (not a controlled vocabulary),
+// so officer roles are pattern-matched; isDirector is its own boolean flag independent of
+// officerTitle. A plain officer title that doesn't match (e.g. "SVP, GC and Secretary", "Chief
+// Accounting Officer") or a bare 10% owner does not qualify.
+function classifyRole(rel: {
   isOfficer?: boolean | string;
   officerTitle?: string;
   isDirector?: boolean | string;
   isTenPercentOwner?: boolean | string;
-}): string {
-  const truthy = (v: unknown) => v === true || v === 'true' || v === '1';
-  if (truthy(rel.isOfficer) && rel.officerTitle) return rel.officerTitle;
-  if (truthy(rel.isDirector)) return 'Director';
-  if (truthy(rel.isTenPercentOwner)) return '10% Owner';
-  return 'Insider';
+}): RoleClassification {
+  // SEC's Form 4 schema represents these as "1"/"0", but fast-xml-parser auto-converts
+  // numeric-looking text content to actual JS numbers — so the real value here is the number 1,
+  // not the string '1' or the boolean true. Missing the number case meant isDirector/isOfficer
+  // never matched at all, silently (this bug predates today's filtering — it just had no
+  // visible effect before because nothing depended on these flags being correct).
+  const truthy = (v: unknown) => v === true || v === 'true' || v === '1' || v === 1;
+  const isOfficer = truthy(rel.isOfficer);
+  const isDirector = truthy(rel.isDirector);
+
+  if (isOfficer && rel.officerTitle && QUALIFYING_OFFICER_ROLE.test(rel.officerTitle)) {
+    return { title: rel.officerTitle, qualifies: true };
+  }
+  if (isDirector) {
+    // Prefer a more specific officer title if one exists (e.g. a director who's also Chairman),
+    // even if it didn't match the qualifying pattern above — being a director already qualifies.
+    return { title: isOfficer && rel.officerTitle ? rel.officerTitle : 'Director', qualifies: true };
+  }
+  if (isOfficer && rel.officerTitle) {
+    return { title: rel.officerTitle, qualifies: false };
+  }
+  if (truthy(rel.isTenPercentOwner)) {
+    return { title: '10% Owner', qualifies: false };
+  }
+  return { title: 'Insider', qualifies: false };
 }
 
 async function fetchInsiderTradesForTicker(
@@ -42,30 +84,50 @@ async function fetchInsiderTradesForTicker(
       const doc = xmlParser.parse(xml)?.ownershipDocument;
       if (!doc) continue;
 
-      const owner = doc.reportingOwner?.reportingOwnerId?.rptOwnerName ?? 'Unknown';
-      const title = insiderTitleFrom(doc.reportingOwner?.reportingOwnerRelationship ?? {});
+      // Form 4 allows multiple joint reportingOwner entries per filing (e.g. an individual
+      // filing alongside an affiliated entity) — fast-xml-parser only gives an array when there
+      // are 2+, so a single filer is a plain object. Check every owner on the filing and use
+      // the first one that actually qualifies, rather than assuming there's exactly one.
+      const owners = toArray(doc.reportingOwner);
+      let owner = 'Unknown';
+      let role: RoleClassification = { title: 'Insider', qualifies: false };
+      for (const o of owners) {
+        const candidate = classifyRole(o?.reportingOwnerRelationship ?? {});
+        if (candidate.qualifies) {
+          owner = o?.reportingOwnerId?.rptOwnerName ?? 'Unknown';
+          role = candidate;
+          break;
+        }
+      }
+      if (!role.qualifies) continue; // no reporting owner on this filing is CEO/CFO/COO/President/Chairman/Director
 
       const nonDerivative = toArray(doc.nonDerivativeTable?.nonDerivativeTransaction);
       let seq = 0;
       for (const txn of nonDerivative) {
         if (seq >= TRANSACTIONS_PER_FILING) break;
         const code = txn?.transactionCoding?.transactionCode;
-        if (code !== 'P' && code !== 'S') continue; // only genuine open-market buys/sells
+        // Only open-market purchases. This drops sells entirely (including 10b5-1 plan sales,
+        // which file under 'S' with no separate code), option exercises ('M'), and tax
+        // withholding ('F') — "meaningful buys" only, not the noisy mix of every Form 4 line.
+        if (code !== 'P') continue;
 
         const shares = num(txn?.transactionAmounts?.transactionShares?.value);
         const price = num(txn?.transactionAmounts?.transactionPricePerShare?.value);
         const txnDate = txn?.transactionDate?.value ?? filing.reportDate;
         if (!shares || !price) continue;
 
+        const value = Math.round(shares * price);
+        if (value <= MIN_TRADE_VALUE) continue;
+
         trades.push({
           id: `${filing.accessionNumber}-${seq}`,
           ticker,
           insiderName: owner,
-          insiderTitle: title,
-          transactionType: code === 'P' ? 'BUY' : 'SELL',
+          insiderTitle: role.title,
+          transactionType: 'BUY',
           shares,
           price,
-          value: Math.round(shares * price),
+          value,
           filingDate: txnDate,
           market,
         });

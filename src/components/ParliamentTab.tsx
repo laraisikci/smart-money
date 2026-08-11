@@ -8,6 +8,7 @@ const FLAGS: Record<string, string> = {
   France: '🇫🇷',
   Germany: '🇩🇪',
   'United Kingdom': '🇬🇧',
+  Italy: '🇮🇹',
 };
 
 export function ParliamentTab() {
