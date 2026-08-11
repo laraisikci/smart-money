@@ -23,6 +23,22 @@ function throttle(): Promise<void> {
   return run;
 }
 
+const REQUEST_TIMEOUT_MS = 15_000;
+const MAX_ATTEMPTS = 3;
+const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504]);
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+// Exponential backoff (500ms, 1500ms, ...) with jitter, capped, so retries spread out instead
+// of all hammering SEC at the same instant after an outage.
+function backoffMs(attempt: number): number {
+  const base = 500 * 3 ** (attempt - 1);
+  const jitter = Math.random() * 250;
+  return Math.min(base, 8000) + jitter;
+}
+
 interface CacheEntry {
   expires: number;
   value: unknown;
@@ -30,17 +46,53 @@ interface CacheEntry {
 const cache = new Map<string, CacheEntry>();
 
 async function secFetch(url: string): Promise<Response> {
-  await throttle();
-  const res = await fetch(url, {
-    headers: {
-      'User-Agent': SEC_USER_AGENT!,
-      Accept: 'application/json, text/xml, application/xml, */*',
-    },
-  });
-  if (!res.ok) {
-    throw new Error(`SEC EDGAR request failed: ${res.status} ${res.statusText} — ${url}`);
+  let lastErr: unknown;
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    await throttle();
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+    try {
+      const res = await fetch(url, {
+        signal: controller.signal,
+        headers: {
+          'User-Agent': SEC_USER_AGENT!,
+          Accept: 'application/json, text/xml, application/xml, */*',
+        },
+      });
+
+      if (res.ok) return res;
+
+      if (RETRYABLE_STATUS.has(res.status) && attempt < MAX_ATTEMPTS) {
+        // Honor Retry-After when SEC sends one (typically on 429s); otherwise fall back to our
+        // own backoff schedule.
+        const retryAfter = res.headers.get('retry-after');
+        const waitMs = retryAfter ? Number(retryAfter) * 1000 : backoffMs(attempt);
+        await sleep(Number.isFinite(waitMs) ? waitMs : backoffMs(attempt));
+        continue;
+      }
+
+      throw new Error(`SEC EDGAR request failed: ${res.status} ${res.statusText} — ${url}`);
+    } catch (err) {
+      lastErr = err;
+      const isAbort = err instanceof Error && err.name === 'AbortError';
+      const isNetworkError = err instanceof TypeError; // fetch throws TypeError on network failure
+      if ((isAbort || isNetworkError) && attempt < MAX_ATTEMPTS) {
+        await sleep(backoffMs(attempt));
+        continue;
+      }
+      if (isAbort) throw new Error(`SEC EDGAR request timed out after ${REQUEST_TIMEOUT_MS}ms — ${url}`);
+      throw err;
+    } finally {
+      clearTimeout(timeout);
+    }
   }
-  return res;
+
+  // Unreachable in practice (every branch above either returns or throws), but keeps TS happy
+  // and fails loudly rather than silently if the loop logic above ever changes.
+  throw lastErr instanceof Error ? lastErr : new Error(`SEC EDGAR request failed — ${url}`);
 }
 
 export async function secFetchJson<T>(url: string, cacheTtlMs = 15 * 60_000): Promise<T> {
