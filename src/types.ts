@@ -87,6 +87,22 @@ export interface TickerNews {
   headlines: NewsHeadline[];
 }
 
+export type MacroIndicatorId = 'ecbRate' | 'eurUsd' | 'inflation' | 'brent' | 'vix' | 'stoxx50';
+
+export interface MacroIndicator {
+  id: MacroIndicatorId;
+  label: string;
+  value: number;
+  unit: string;
+  previousValue: number;
+  change: number;
+  changePercent: number | null;
+  goodForMarkets: boolean | null;
+  interpretation: string;
+  asOf: string;
+  source: string;
+}
+
 export interface EuropeanRegulatorLink {
   country: string;
   regulator: string;

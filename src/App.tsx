@@ -1,19 +1,19 @@
 import { useState } from 'react';
-import { Activity, UserCircle2, Building2, Landmark, BarChart3 } from 'lucide-react';
+import { Activity, UserCircle2, Building2, HeartPulse, BarChart3 } from 'lucide-react';
 import { ConvictionTab } from '@/components/ConvictionTab';
 import { InsidersTab } from '@/components/InsidersTab';
 import { InstitutionsTab } from '@/components/InstitutionsTab';
-import { ParliamentTab } from '@/components/ParliamentTab';
+import { PulseTab } from '@/components/PulseTab';
 import { PolymarketTab } from '@/components/PolymarketTab';
 import { DataStatus } from '@/components/DataStatus';
 
-type TabId = 'conviction' | 'insiders' | 'institutions' | 'parliament' | 'polymarket';
+type TabId = 'conviction' | 'insiders' | 'institutions' | 'pulse' | 'polymarket';
 
 const TABS: { id: TabId; label: string; icon: typeof Activity }[] = [
   { id: 'conviction', label: 'Conviction', icon: Activity },
   { id: 'insiders', label: 'Insiders', icon: UserCircle2 },
   { id: 'institutions', label: 'Institutions', icon: Building2 },
-  { id: 'parliament', label: 'Parliament', icon: Landmark },
+  { id: 'pulse', label: 'Pulse', icon: HeartPulse },
   { id: 'polymarket', label: 'Markets', icon: BarChart3 },
 ];
 
@@ -43,12 +43,12 @@ function App() {
         {activeTab === 'conviction' && <ConvictionTab />}
         {activeTab === 'insiders' && <InsidersTab />}
         {activeTab === 'institutions' && <InstitutionsTab />}
-        {activeTab === 'parliament' && <ParliamentTab />}
+        {activeTab === 'pulse' && <PulseTab />}
         {activeTab === 'polymarket' && <PolymarketTab />}
       </main>
 
       {/* Bottom navigation */}
-      <nav className="fixed bottom-0 left-1/2 z-30 w-full max-w-md border-t border-ink-700/40 bg-ink-900/90 backdrop-blur-lg">
+      <nav className="fixed bottom-0 left-1/2 z-30 w-full max-w-md -translate-x-1/2 border-t border-ink-700/40 bg-ink-900/90 backdrop-blur-lg">
         <div className="flex items-stretch justify-around px-2 pb-[env(safe-area-inset-bottom)] pt-2">
           {TABS.map((tab) => {
             const Icon = tab.icon;

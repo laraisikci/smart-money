@@ -7,6 +7,7 @@ import { marketsRouter } from './routes/markets.js';
 import { europeanRouter } from './routes/european.js';
 import { congressRouter } from './routes/congress.js';
 import { newsRouter } from './routes/news.js';
+import { macroRouter } from './routes/macro.js';
 
 const PORT = Number(process.env.PORT ?? 8787);
 const CORS_ORIGIN = process.env.CORS_ORIGIN ?? 'http://localhost:5173';
@@ -22,6 +23,7 @@ app.use('/api/markets', marketsRouter());
 app.use('/api/european', europeanRouter());
 app.use('/api/congress', congressRouter());
 app.use('/api/news', newsRouter());
+app.use('/api/macro', macroRouter());
 
 // Bind explicitly to 0.0.0.0 — omitting the host can resolve to an IPv6-only (`::`) socket
 // depending on the container's networking, which Railway's health-check prober can't reach.

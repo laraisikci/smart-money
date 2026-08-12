@@ -57,3 +57,28 @@ export interface TickerNews {
   ticker: string;
   headlines: NewsHeadline[];
 }
+
+export type MacroIndicatorId = 'ecbRate' | 'eurUsd' | 'inflation' | 'brent' | 'vix' | 'stoxx50';
+
+export interface MacroIndicator {
+  id: MacroIndicatorId;
+  label: string;
+  value: number;
+  unit: string;
+  previousValue: number;
+  change: number;
+  changePercent: number | null;
+  // Whether the observed change direction is good for equity markets in general — null when
+  // roughly flat/unchanged, i.e. no directional read. Individual sectors can still read the same
+  // move differently (see the frontend's sector rotation logic); this is the broad-market take.
+  goodForMarkets: boolean | null;
+  interpretation: string;
+  asOf: string;
+  source: string;
+}
+
+export interface MacroResponse {
+  data: MacroIndicator[];
+  generatedAt: string;
+  unavailable: string[];
+}
