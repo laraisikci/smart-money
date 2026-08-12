@@ -1,12 +1,12 @@
 import { useMemo, useState } from 'react';
 import { Activity, ChevronRight, Calendar, Globe2 } from 'lucide-react';
-import type { ConvictionResult, Sector } from '@/types';
+import type { ConvictionResult, Sector, NewsHeadline } from '@/types';
 import { SECTORS } from '@/types';
 import { computeConviction, getSectorTopPick } from '@/lib/conviction';
 import { api } from '@/lib/api';
 import { useApi } from '@/lib/useApi';
 import { getEarningsDate, daysUntilEarnings } from '@/data/earnings';
-import { SignalIcons, MarketTag, TrendArrow, LoadingCards, ErrorCard } from '@/components/ui';
+import { SignalIcons, MarketTag, TrendArrow, SentimentBadge, LoadingCards, ErrorCard } from '@/components/ui';
 import { TickerDetailDrawer } from '@/components/TickerDetailDrawer';
 
 type MarketFilter = 'ALL' | 'EU' | 'US';
@@ -23,10 +23,18 @@ export function ConvictionTab() {
   const insiders = useApi(api.insiders, 'insiders');
   const institutions = useApi(api.institutions, 'institutions');
   const polymarket = useApi(api.markets, 'markets');
+  const news = useApi(api.news, 'news');
 
-  const loading = insiders.loading || institutions.loading || polymarket.loading;
-  const error = insiders.error || institutions.error || polymarket.error;
-  const ready = insiders.data && institutions.data && polymarket.data;
+  const loading = insiders.loading || institutions.loading || polymarket.loading || news.loading;
+  const error = insiders.error || institutions.error || polymarket.error || news.error;
+  const ready = insiders.data && institutions.data && polymarket.data && news.data;
+
+  const newsByTicker = useMemo(() => {
+    const map = new Map<string, NewsHeadline[]>();
+    for (const t of news.data?.data ?? []) map.set(t.ticker, t.headlines);
+    return map;
+  }, [news.data]);
+  const allHeadlines = useMemo(() => Array.from(newsByTicker.values()).flat(), [newsByTicker]);
 
   const allResults = useMemo(() => {
     if (!ready) return [];
@@ -34,8 +42,9 @@ export function ConvictionTab() {
       insiders: insiders.data!.data,
       institutions: institutions.data!.data,
       polymarket: polymarket.data!.data,
+      news: allHeadlines,
     });
-  }, [ready, insiders.data, institutions.data, polymarket.data]);
+  }, [ready, insiders.data, institutions.data, polymarket.data, allHeadlines]);
 
   const results = useMemo(
     () => (marketFilter === 'ALL' ? allResults : allResults.filter((r) => r.market === marketFilter)),
@@ -82,6 +91,7 @@ export function ConvictionTab() {
             insiders.refetch();
             institutions.refetch();
             polymarket.refetch();
+            news.refetch();
           }}
         />
       )}
@@ -101,6 +111,7 @@ export function ConvictionTab() {
                 key={`eu-${r.ticker}`}
                 result={r}
                 rank={i + 1}
+                headlines={newsByTicker.get(r.ticker) ?? []}
                 onClick={() => setSelected(r)}
               />
             ))}
@@ -120,6 +131,7 @@ export function ConvictionTab() {
               result={r}
               rank={i + 1}
               featured
+              headlines={newsByTicker.get(r.ticker) ?? []}
               onClick={() => setSelected(r)}
             />
           ))}
@@ -140,6 +152,7 @@ export function ConvictionTab() {
                 key={sector}
                 sector={sector as Sector}
                 result={pick}
+                headlines={newsByTicker.get(pick.ticker) ?? []}
                 onClick={() => setSelected(pick)}
               />
             );
@@ -159,6 +172,7 @@ export function ConvictionTab() {
         insiders={insiders.data?.data ?? []}
         institutions={institutions.data?.data ?? []}
         polymarket={polymarket.data?.data ?? []}
+        news={selected ? (newsByTicker.get(selected.ticker) ?? []) : []}
       />
     </div>
   );
@@ -182,11 +196,13 @@ function ConvictionCard({
   result,
   rank,
   featured,
+  headlines,
   onClick,
 }: {
   result: ConvictionResult;
   rank: number;
   featured?: boolean;
+  headlines: NewsHeadline[];
   onClick: () => void;
 }) {
   return (
@@ -207,6 +223,9 @@ function ConvictionCard({
               <MarketTag market={result.market} currency={result.currency} />
             </div>
             <p className="mt-0.5 truncate text-xs text-ink-400">{result.name}</p>
+            <div className="mt-1">
+              <SentimentBadge headlines={headlines} />
+            </div>
           </div>
         </div>
         <div className="text-right">
@@ -246,10 +265,12 @@ function ConvictionCard({
 function SectorRow({
   sector,
   result,
+  headlines,
   onClick,
 }: {
   sector: Sector;
   result: ConvictionResult;
+  headlines: NewsHeadline[];
   onClick: () => void;
 }) {
   return (
@@ -265,6 +286,9 @@ function SectorRow({
             <MarketTag market={result.market} currency={result.currency} />
           </div>
           <p className="truncate text-2xs text-ink-500">{result.name}</p>
+          <div className="mt-1">
+            <SentimentBadge headlines={headlines} />
+          </div>
         </div>
       </div>
       <div className="flex items-center gap-3">

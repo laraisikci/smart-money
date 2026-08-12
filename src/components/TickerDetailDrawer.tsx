@@ -1,12 +1,14 @@
-import { useEffect } from 'react';
-import { X, Calendar, Percent, TrendingDown } from 'lucide-react';
-import type { ConvictionResult, InsiderTrade, InstitutionalPosition, PolymarketMarket } from '@/types';
+import { useEffect, useState } from 'react';
+import { X, Calendar, Percent, TrendingDown, Newspaper, ExternalLink } from 'lucide-react';
+import type { ConvictionResult, InsiderTrade, InstitutionalPosition, PolymarketMarket, NewsHeadline } from '@/types';
 import { getEarningsDate, daysUntilEarnings } from '@/data/earnings';
 import { getShortInterest, shortInterestLevel } from '@/data/shortInterest';
 import { getTickerMeta } from '@/data/tickers';
 import { SignalIcons, ActionBadge, MarketTag, FundAvatar } from '@/components/ui';
 import { FUND_MAP } from '@/data/funds';
 import { formatCurrency, formatShares, formatDate, timeAgo } from '@/lib/format';
+import { SENTIMENT_DIRECTION } from '@/lib/newsSentiment';
+import { api } from '@/lib/api';
 
 interface TickerDetailDrawerProps {
   result: ConvictionResult | null;
@@ -14,6 +16,7 @@ interface TickerDetailDrawerProps {
   insiders: InsiderTrade[];
   institutions: InstitutionalPosition[];
   polymarket: PolymarketMarket[];
+  news: NewsHeadline[];
 }
 
 export function TickerDetailDrawer({
@@ -22,6 +25,7 @@ export function TickerDetailDrawer({
   insiders: allInsiders,
   institutions: allInstitutions,
   polymarket: allPolymarket,
+  news: bulkNews,
 }: TickerDetailDrawerProps) {
   useEffect(() => {
     if (result) {
@@ -30,6 +34,27 @@ export function TickerDetailDrawer({
         document.body.style.overflow = '';
       };
     }
+  }, [result]);
+
+  // On-demand fetch for the one ticker actually being viewed — tries GNews first server-side,
+  // falling back to Yahoo (see /api/news/:ticker) — layered on top of the already-fetched bulk
+  // `news` prop, which displays instantly while this is in flight rather than showing nothing.
+  const [onDemandNews, setOnDemandNews] = useState<NewsHeadline[] | null>(null);
+  useEffect(() => {
+    setOnDemandNews(null);
+    if (!result) return;
+    let cancelled = false;
+    api
+      .newsForTicker(result.ticker)
+      .then((res) => {
+        if (!cancelled) setOnDemandNews(res.data);
+      })
+      .catch(() => {
+        // keep showing the bulk-fetched fallback rather than an error state for this
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [result]);
 
   if (!result) return null;
@@ -43,6 +68,7 @@ export function TickerDetailDrawer({
   const insiders = allInsiders.filter((t) => t.ticker === result.ticker);
   const institutions = allInstitutions.filter((p) => p.ticker === result.ticker);
   const polymarkets = allPolymarket.filter((m) => m.relatedTickers.includes(result.ticker));
+  const news = onDemandNews ?? bulkNews;
 
   return (
     <>
@@ -239,6 +265,46 @@ export function TickerDetailDrawer({
                     </p>
                   </div>
                 ))}
+              </div>
+            </div>
+          )}
+
+          {/* Recent news */}
+          {news.length > 0 && (
+            <div>
+              <div className="mb-2 flex items-center gap-1.5">
+                <Newspaper className="h-3.5 w-3.5 text-ink-400" />
+                <h4 className="text-xs font-medium uppercase tracking-wider text-ink-400">
+                  Recent News
+                </h4>
+              </div>
+              <p className="mb-2 text-2xs text-ink-600">
+                Sentiment and impact tags are a keyword-based estimate, not financial advice.
+              </p>
+              <div className="space-y-2">
+                {news.slice(0, 5).map((h, i) => {
+                  const direction = SENTIMENT_DIRECTION[h.sentiment];
+                  return (
+                    <a
+                      key={i}
+                      href={h.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="card block p-3 transition-colors hover:border-ink-600"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="text-xs text-ink-200">{h.title}</p>
+                        <ExternalLink className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ink-500" />
+                      </div>
+                      <div className="mt-2 flex items-center justify-between border-t border-ink-700/40 pt-2">
+                        <span className="text-2xs text-ink-400">
+                          {direction.emoji} {direction.label}
+                        </span>
+                        <span className="text-2xs text-ink-500">{timeAgo(h.publishedAt)}</span>
+                      </div>
+                    </a>
+                  );
+                })}
               </div>
             </div>
           )}

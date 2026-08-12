@@ -4,33 +4,38 @@ import type {
   InsiderTrade,
   InstitutionalPosition,
   PolymarketMarket,
+  NewsHeadline,
   SignalType,
   Sector,
 } from '@/types';
 import { getTickerMeta } from '@/data/tickers';
 import { daysAgo } from '@/lib/format';
+import { recentHeadlines, NEWS_MAX_AGE_DAYS } from '@/lib/newsSentiment';
 
 // Matches the Insiders tab's default recency window. A trade older than this shouldn't silently
 // count toward conviction just because it happened to be the most recent thing SEC EDGAR had —
 // stale insider data is treated the same as no insider data, not as a live bullish signal.
 const INSIDER_MAX_AGE_DAYS = 90;
 
-// Insider buys carry the highest weight since /api/insiders now only returns curated,
-// meaningful signal (open-market purchases above $50k from CEO/CFO/COO/President/Chairman/
-// Director) rather than a noisy mix of every Form 4 line — a filtered buy is worth more than an
-// unfiltered one. Institutional 13F activity gets more weight than Polymarket, which is a
-// softer, more speculative signal. There's no congress/parliament weight: that data source
-// doesn't exist (see /api/congress), so it was never part of this formula to begin with.
+// Insider buys carry the highest weight since /api/insiders only returns curated, meaningful
+// signal (open-market purchases above $50k from CEO/CFO/COO/President/Chairman/Director) rather
+// than a noisy mix of every Form 4 line — a filtered buy is worth more than an unfiltered one.
+// Institutional 13F activity gets more weight than Polymarket, a softer/more speculative signal.
+// News sentiment is a keyword-based heuristic over headlines, not real NLP — kept at the lowest
+// weight to match how much confidence that method actually deserves. There's no congress/
+// parliament weight: that data source doesn't exist (see /api/congress).
 const WEIGHTS: Record<SignalType, number> = {
-  insider: 0.50,
-  institution: 0.35,
+  insider: 0.40,
+  institution: 0.30,
   polymarket: 0.15,
+  news: 0.15,
 };
 
 export interface ConvictionInput {
   insiders: InsiderTrade[];
   institutions: InstitutionalPosition[];
   polymarket: PolymarketMarket[];
+  news: NewsHeadline[];
 }
 
 function clampScore(n: number): number {
@@ -106,6 +111,22 @@ function polymarketSignal(
   return { score: clampScore(score), detail };
 }
 
+function newsSignal(allHeadlines: NewsHeadline[]): { score: number; detail: string } | null {
+  // Only the last 7 days count — a positive headline from a month ago shouldn't move today's
+  // score. This is a keyword-based heuristic, not real sentiment analysis, so it's scored more
+  // conservatively than the other signals (smaller per-item swing, lower cap either direction).
+  const headlines = recentHeadlines(allHeadlines, NEWS_MAX_AGE_DAYS);
+  if (headlines.length === 0) return null;
+
+  const positive = headlines.filter((h) => h.sentiment === 'Positive').length;
+  const negative = headlines.filter((h) => h.sentiment === 'Negative').length;
+  if (positive === 0 && negative === 0) return null; // all-Neutral week: no signal either way
+
+  const score = clampScore(50 + (positive - negative) * 12);
+  const detail = `${headlines.length} headline${headlines.length !== 1 ? 's' : ''} this week · ${positive} positive, ${negative} negative`;
+  return { score, detail };
+}
+
 function formatCompact(n: number): string {
   if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)}B`;
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -120,18 +141,20 @@ export function computeConviction(input: ConvictionInput): ConvictionResult[] {
       insiders: InsiderTrade[];
       institutions: InstitutionalPosition[];
       polymarket: PolymarketMarket[];
+      news: NewsHeadline[];
     }
   >();
 
   const addToMap = (
     key: string,
-    item: InsiderTrade | InstitutionalPosition | PolymarketMarket,
-    field: 'insiders' | 'institutions' | 'polymarket',
+    item: InsiderTrade | InstitutionalPosition | PolymarketMarket | NewsHeadline,
+    field: 'insiders' | 'institutions' | 'polymarket' | 'news',
   ) => {
     const entry = tickerMap.get(key) ?? {
       insiders: [],
       institutions: [],
       polymarket: [],
+      news: [],
     };
     entry[field].push(item as never);
     tickerMap.set(key, entry);
@@ -144,6 +167,7 @@ export function computeConviction(input: ConvictionInput): ConvictionResult[] {
       addToMap(ticker, m, 'polymarket');
     }
   }
+  for (const h of input.news) addToMap(h.ticker, h, 'news');
 
   const results: ConvictionResult[] = [];
 
@@ -166,6 +190,11 @@ export function computeConviction(input: ConvictionInput): ConvictionResult[] {
     if (poly) {
       signals.push({ type: 'polymarket', score: poly.score, detail: poly.detail });
       signalsActive.push('polymarket');
+    }
+    const news = newsSignal(data.news);
+    if (news) {
+      signals.push({ type: 'news', score: news.score, detail: news.detail });
+      signalsActive.push('news');
     }
 
     if (signals.length === 0) continue;

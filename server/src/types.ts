@@ -44,3 +44,16 @@ export interface EuropeanRegulatorLink {
   description: string;
   url: string;
 }
+
+export interface NewsHeadline {
+  ticker: string;
+  title: string;
+  url: string;
+  publishedAt: string;
+  sentiment: 'Positive' | 'Negative' | 'Neutral';
+}
+
+export interface TickerNews {
+  ticker: string;
+  headlines: NewsHeadline[];
+}

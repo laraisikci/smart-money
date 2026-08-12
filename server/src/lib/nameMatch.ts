@@ -3,7 +3,7 @@ const SUFFIXES = [
   'ag', 'ltd', 'llc', 'lp', 'holding', 'holdings', 'group', 'the',
 ];
 
-function normalize(name: string): string {
+export function normalize(name: string): string {
   const cleaned = name
     .toLowerCase()
     .replace(/[.,'’()]/g, ' ')

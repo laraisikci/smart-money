@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react';
 import { Filter, UserCircle2, ExternalLink, Calendar } from 'lucide-react';
+import type { NewsHeadline } from '@/types';
 import { api } from '@/lib/api';
 import { useApi } from '@/lib/useApi';
 import { getTickerMeta } from '@/data/tickers';
 import { formatCurrency, formatShares, timeAgo, daysAgo } from '@/lib/format';
-import { ActionBadge, MarketTag, LoadingCards, ErrorCard } from '@/components/ui';
+import { ActionBadge, MarketTag, SentimentBadge, LoadingCards, ErrorCard } from '@/components/ui';
 
 const THRESHOLDS = [
   { label: 'Any', value: 0 },
@@ -59,6 +60,13 @@ export function InsidersTab() {
   const [threshold, setThreshold] = useState(100_000);
   const [dateRangeDays, setDateRangeDays] = useState<number | null>(DEFAULT_DATE_RANGE_DAYS);
   const { data, loading, error, refetch } = useApi(api.insiders, 'insiders');
+  const newsData = useApi(api.news, 'news');
+
+  const newsByTicker = useMemo(() => {
+    const map = new Map<string, NewsHeadline[]>();
+    for (const t of newsData.data?.data ?? []) map.set(t.ticker, t.headlines);
+    return map;
+  }, [newsData.data]);
 
   const filtered = useMemo(() => {
     const trades = data?.data ?? [];
@@ -176,6 +184,10 @@ export function InsidersTab() {
                   </div>
                   <p className="text-2xs text-ink-500">{timeAgo(trade.filingDate)}</p>
                 </div>
+              </div>
+
+              <div className="mt-2">
+                <SentimentBadge headlines={newsByTicker.get(trade.ticker) ?? []} />
               </div>
 
               <div className="mt-3 flex items-center justify-between border-t border-ink-700/40 pt-3">

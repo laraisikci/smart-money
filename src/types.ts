@@ -23,7 +23,7 @@ export type Sector =
     'RealEstate',
   ];
 
-export type SignalType = 'insider' | 'institution' | 'polymarket';
+export type SignalType = 'insider' | 'institution' | 'polymarket' | 'news';
 
 // Currency of each ticker's primary listing exchange. Nearly all Eurozone constituents (DAX,
 // CAC 40, IBEX 35, AEX, and most of EuroStoxx 50) trade in EUR; the rest reflect each company's
@@ -70,6 +70,21 @@ export interface InstitutionalPosition {
   pctChange: number;
   filingDate: string;
   quarter: string;
+}
+
+export type Sentiment = 'Positive' | 'Negative' | 'Neutral';
+
+export interface NewsHeadline {
+  ticker: string;
+  title: string;
+  url: string;
+  publishedAt: string;
+  sentiment: Sentiment;
+}
+
+export interface TickerNews {
+  ticker: string;
+  headlines: NewsHeadline[];
 }
 
 export interface EuropeanRegulatorLink {

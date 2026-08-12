@@ -4,6 +4,8 @@ import type {
   PolymarketMarket,
   EuropeanRegulatorLink,
   OfficialSourceLink,
+  TickerNews,
+  NewsHeadline,
 } from '@/types';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8787';
@@ -46,10 +48,23 @@ export interface CongressResponse {
   officialSources: OfficialSourceLink[];
 }
 
+export interface NewsResponse {
+  data: TickerNews[];
+  generatedAt: string;
+}
+
+export interface TickerNewsResponse {
+  data: NewsHeadline[];
+  generatedAt: string;
+  source: 'gnews' | 'yahoo' | 'cache';
+}
+
 export const api = {
   insiders: () => getJson<InsidersResponse>('/api/insiders'),
   institutions: () => getJson<InstitutionsResponse>('/api/institutions'),
   markets: () => getJson<MarketsResponse>('/api/markets'),
   european: () => getJson<EuropeanResponse>('/api/european'),
   congress: () => getJson<CongressResponse>('/api/congress'),
+  news: () => getJson<NewsResponse>('/api/news'),
+  newsForTicker: (ticker: string) => getJson<TickerNewsResponse>(`/api/news/${encodeURIComponent(ticker)}`),
 };

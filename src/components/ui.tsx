@@ -1,5 +1,6 @@
-import { TrendingUp, TrendingDown, Building2, BarChart3, AlertTriangle } from 'lucide-react';
-import type { SignalType } from '@/types';
+import { TrendingUp, TrendingDown, Building2, BarChart3, AlertTriangle, Newspaper } from 'lucide-react';
+import type { SignalType, NewsHeadline } from '@/types';
+import { recentHeadlines, aggregateSentiment, AGGREGATE_BADGE } from '@/lib/newsSentiment';
 
 export const SIGNAL_META: Record<
   SignalType,
@@ -8,6 +9,7 @@ export const SIGNAL_META: Record<
   insider: { icon: TrendingUp, label: 'Insider', color: 'text-teal-300', bg: 'bg-teal-400/15' },
   institution: { icon: Building2, label: 'Institution', color: 'text-sky-300', bg: 'bg-sky-400/15' },
   polymarket: { icon: BarChart3, label: 'Polymarket', color: 'text-violet-300', bg: 'bg-violet-400/15' },
+  news: { icon: Newspaper, label: 'News', color: 'text-amber-300', bg: 'bg-amber-400/15' },
 };
 
 export function LoadingCards({ count = 3 }: { count?: number }) {
@@ -120,6 +122,21 @@ export function MarketTag({ market, currency }: { market: 'EU' | 'US'; currency?
       }`}
     >
       {label}
+    </span>
+  );
+}
+
+export function SentimentBadge({ headlines }: { headlines: NewsHeadline[] }) {
+  const recent = recentHeadlines(headlines);
+  if (recent.length === 0) return null;
+  const agg = aggregateSentiment(recent);
+  const { emoji, label } = AGGREGATE_BADGE[agg];
+  return (
+    <span
+      title={`${label} — based on ${recent.length} headline${recent.length !== 1 ? 's' : ''} this week`}
+      className="inline-flex items-center gap-1 rounded-full bg-ink-700/40 px-2 py-0.5 text-2xs font-medium text-ink-300"
+    >
+      <span>{emoji}</span> {label}
     </span>
   );
 }
