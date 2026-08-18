@@ -26,7 +26,14 @@ import { SignalIcons, ActionBadge, MarketTag, FundAvatar } from '@/components/ui
 import { FUND_MAP } from '@/data/funds';
 import { formatCurrency, formatShares, formatDate, timeAgo } from '@/lib/format';
 import { SENTIMENT_DIRECTION } from '@/lib/newsSentiment';
-import { reasonAboutTechnicals, rsiZone, stochZone, vsAverage, type Zone } from '@/lib/technicalReasoning';
+import {
+  reasonAboutTechnicals,
+  technicalScore,
+  rsiZone,
+  stochZone,
+  vsAverage,
+  type Zone,
+} from '@/lib/technicalReasoning';
 import { buildFullAnalysis } from '@/lib/fullAnalysis';
 import { api } from '@/lib/api';
 
@@ -148,6 +155,7 @@ export function TickerDetailDrawer({
   const polymarkets = allPolymarket.filter((m) => m.relatedTickers.includes(result.ticker));
   const news = onDemandNews ?? bulkNews;
   const techReasoning = technicals ? reasonAboutTechnicals(technicals) : null;
+  const techScore = technicals ? technicalScore(technicals) : null;
   const fullAnalysis = buildFullAnalysis(result, technicals, news);
 
   return (
@@ -312,6 +320,22 @@ export function TickerDetailDrawer({
 
               {technicals && (
                 <div className="space-y-4">
+                  {techScore && (
+                    <div className="card flex items-center justify-between p-4">
+                      <div>
+                        <p className="text-xs text-ink-400">Technical Score</p>
+                        <p className="mt-0.5 text-2xs text-ink-500">{techScore.detail}</p>
+                        <p className="mt-0.5 text-2xs text-ink-600">
+                          Weighted 60% trend (price vs. moving averages) · 40% momentum (RSI +
+                          Stochastic) — shown separately from the Conviction Score above
+                        </p>
+                      </div>
+                      <div className="shrink-0 font-mono text-2xl font-bold text-teal-300">
+                        {techScore.score}%
+                      </div>
+                    </div>
+                  )}
+
                   <div>
                     <p className="mb-2 text-2xs font-medium text-ink-500">Moving Averages</p>
                     <div className="grid grid-cols-2 gap-2">

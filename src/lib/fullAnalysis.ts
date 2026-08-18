@@ -1,5 +1,5 @@
 import type { ConvictionResult, NewsHeadline, TechnicalIndicators, AnalystRating } from '@/types';
-import { reasonAboutTechnicals } from './technicalReasoning';
+import { reasonAboutTechnicals, technicalScore } from './technicalReasoning';
 import { aggregateSentiment, recentHeadlines } from './newsSentiment';
 
 export type FullAnalysisVerdict = 'Bullish' | 'Bearish' | 'Mixed';
@@ -101,7 +101,9 @@ export function buildFullAnalysis(
     if (reasoning) {
       const direction: Direction =
         reasoning.verdict === 'Bullish' ? 'Bullish' : reasoning.verdict === 'Bearish' ? 'Bearish' : 'Neutral';
-      clauses.push({ text: `Technicals read ${reasoning.verdict.toLowerCase()}.`, direction });
+      const score = technicalScore(technicals);
+      const scoreText = score ? ` (${score.score}% weighted score)` : '';
+      clauses.push({ text: `Technicals read ${reasoning.verdict.toLowerCase()}${scoreText}.`, direction });
     }
     if (technicals.analyst) {
       clauses.push(analystClause(technicals.analyst, technicals.price));

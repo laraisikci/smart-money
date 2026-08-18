@@ -24,6 +24,54 @@ export interface TechnicalReasoning {
   verdict: Verdict;
 }
 
+export interface TechnicalScore {
+  score: number; // 0-100
+  detail: string;
+}
+
+// Slower-moving averages carry more weight than fast ones — the same logic as why the reasoning
+// above anchors its trend read on SMA200 rather than SMA20: a price crossing its 20-day average
+// is common noise, crossing its 200-day average is a real trend change.
+const MA_WEIGHTS: { key: 'sma20' | 'sma50' | 'sma200' | 'ema20' | 'ema50' | 'ema200'; weight: number }[] = [
+  { key: 'sma20', weight: 1 },
+  { key: 'ema20', weight: 1 },
+  { key: 'sma50', weight: 1.5 },
+  { key: 'ema50', weight: 1.5 },
+  { key: 'sma200', weight: 2 },
+  { key: 'ema200', weight: 2 },
+];
+
+const TREND_WEIGHT = 0.6;
+const MOMENTUM_WEIGHT = 0.4;
+
+/**
+ * A single weighted 0-100 read across every indicator in the Technical Analysis section — 60%
+ * from where price sits relative to each moving average (weighted toward the slower, more
+ * significant ones), 40% from RSI/Stochastic momentum. Deliberately a coarser, continuous
+ * measure than the bucketed verdict above (Bullish/Bearish/Mixed/Caution) — same relationship
+ * newsSignal()'s numeric score has to the separate aggregateSentiment() bucket in conviction.ts,
+ * so a "Mixed" verdict next to a 70%+ score isn't a contradiction, just two different views of
+ * the same data (verdict accounts for conflicting signals discounting confidence; the score here
+ * doesn't).
+ */
+export function technicalScore(ind: TechnicalIndicators): TechnicalScore | null {
+  const available = MA_WEIGHTS.filter((m) => ind[m.key] !== null);
+  if (available.length === 0 || ind.rsi14 === null || ind.stochK === null) return null;
+
+  const totalWeight = available.reduce((sum, m) => sum + m.weight, 0);
+  const aboveWeight = available.reduce((sum, m) => {
+    const value = ind[m.key] as number;
+    return sum + (ind.price > value ? m.weight : 0);
+  }, 0);
+  const trendScore = (aboveWeight / totalWeight) * 100;
+  const momentumScore = (ind.rsi14 + ind.stochK) / 2;
+
+  const score = Math.round(trendScore * TREND_WEIGHT + momentumScore * MOMENTUM_WEIGHT);
+  const aboveCount = available.filter((m) => ind.price > (ind[m.key] as number)).length;
+  const detail = `Price above ${aboveCount}/${available.length} moving averages · RSI ${ind.rsi14.toFixed(0)} · Stoch ${ind.stochK.toFixed(0)}`;
+  return { score: Math.max(0, Math.min(100, score)), detail };
+}
+
 function trendClause(price: number, sma200: number): string {
   const rel = price >= sma200 ? 'above' : 'below';
   return `Price is ${rel} its 200-day moving average ($${sma200.toFixed(2)}).`;
