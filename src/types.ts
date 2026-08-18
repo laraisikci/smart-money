@@ -87,6 +87,29 @@ export interface TickerNews {
   headlines: NewsHeadline[];
 }
 
+export interface AnalystRating {
+  recommendationMean: number;
+  recommendationKey: string;
+  numberOfAnalysts: number;
+  targetMeanPrice: number | null;
+}
+
+export interface TechnicalIndicators {
+  ticker: string;
+  price: number;
+  sma20: number | null;
+  sma50: number | null;
+  sma200: number | null;
+  ema20: number | null;
+  ema50: number | null;
+  ema200: number | null;
+  rsi14: number | null;
+  stochK: number | null;
+  stochD: number | null;
+  analyst: AnalystRating | null;
+  asOf: string;
+}
+
 export type MacroIndicatorId = 'ecbRate' | 'eurUsd' | 'inflation' | 'brent' | 'vix' | 'stoxx50';
 
 export interface MacroIndicator {

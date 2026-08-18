@@ -1,5 +1,6 @@
 import { fetchYahooJson } from './newsClient.js';
 import { normalize } from './nameMatch.js';
+import type { TickerMeta } from '../data/tickers.js';
 
 // Yahoo's RSS-by-ticker endpoint resolves *bare* symbols against its whole global instrument
 // universe, not just our intended company — verified directly: bare "MC" (our internal LVMH
@@ -71,4 +72,22 @@ export async function resolveYahooSymbol(companyName: string): Promise<string | 
   } catch {
     return null;
   }
+}
+
+// A couple of EU tickers where Yahoo's own search doesn't reliably surface the correct primary
+// listing even after name normalization — verified directly (see resolveYahooSymbol above):
+// "sanofi" surfaces a secondary Frankfurt listing (SNW.F) instead of the Paris primary. Checked
+// before the generic resolver; not an attempt to hand-map all ~150 EU tickers, just the ones a
+// concrete test showed were wrong. Shared by every route that needs a ticker's Yahoo symbol
+// (news headlines, technical indicators) so the override list only lives in one place.
+const YAHOO_SYMBOL_OVERRIDES: Record<string, string> = {
+  SAN: 'SAN.PA',
+};
+
+export async function resolveTickerYahooSymbol(meta: TickerMeta): Promise<string | null> {
+  // US tickers are all real major NYSE/Nasdaq large-caps — unambiguously their own bare Yahoo
+  // symbol, no resolution needed. EU tickers need disambiguation (see comment above
+  // PREFERRED_EXCHANGES for why bare local symbols collide with unrelated companies on Yahoo).
+  if (meta.market === 'US') return meta.symbol;
+  return YAHOO_SYMBOL_OVERRIDES[meta.symbol] ?? resolveYahooSymbol(meta.name);
 }

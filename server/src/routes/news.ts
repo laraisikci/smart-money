@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import { TICKERS } from '../data/tickers.js';
+import type { TickerMeta } from '../data/tickers.js';
 import { fetchNewsRss } from '../lib/newsClient.js';
-import { resolveYahooSymbol } from '../lib/yahooSymbolResolver.js';
+import { resolveTickerYahooSymbol } from '../lib/yahooSymbolResolver.js';
 import { fetchGNewsHeadlines } from '../lib/gnewsClient.js';
 import { xmlParser, toArray } from '../lib/xml.js';
 import { classifySentiment } from '../lib/sentiment.js';
@@ -11,15 +12,6 @@ const HEADLINES_PER_TICKER = 5;
 const RESPONSE_CACHE_TTL_MS = 2 * 60 * 60_000; // 2h, per spec
 const RSS_CACHE_TTL_MS = 2 * 60 * 60_000; // matches the response cache — no point outliving it
 const TICKER_BATCH_SIZE = 20;
-
-// A couple of EU tickers where Yahoo's own search doesn't reliably surface the correct primary
-// listing even after name normalization — verified directly (see yahooSymbolResolver.ts):
-// "sanofi" surfaces a secondary Frankfurt listing (SNW.F) instead of the Paris primary. Checked
-// before the generic resolver; not an attempt to hand-map all ~150 EU tickers, just the ones a
-// concrete test showed were wrong.
-const YAHOO_SYMBOL_OVERRIDES: Record<string, string> = {
-  SAN: 'SAN.PA',
-};
 
 function chunk<T>(items: T[], size: number): T[][] {
   const out: T[][] = [];
@@ -33,17 +25,9 @@ interface RssItem {
   pubDate?: unknown;
 }
 
-async function fetchTickerNews(
-  ourSymbol: string,
-  name: string,
-  market: 'EU' | 'US',
-): Promise<NewsHeadline[]> {
-  // US tickers are all real major NYSE/Nasdaq large-caps — unambiguously their own bare Yahoo
-  // symbol, no resolution needed. EU tickers need disambiguation (see yahooSymbolResolver.ts for
-  // why: bare local symbols like "MC" and "OR" collide with unrelated US/Canadian companies on
-  // Yahoo's global instrument search).
-  const yahooSymbol =
-    market === 'US' ? ourSymbol : (YAHOO_SYMBOL_OVERRIDES[ourSymbol] ?? (await resolveYahooSymbol(name)));
+async function fetchTickerNews(meta: TickerMeta): Promise<NewsHeadline[]> {
+  const ourSymbol = meta.symbol;
+  const yahooSymbol = await resolveTickerYahooSymbol(meta);
   if (!yahooSymbol) return [];
 
   const xml = await fetchNewsRss(
@@ -88,7 +72,7 @@ async function computeNews(): Promise<ResponseCacheEntry['value']> {
     const batchResults = await Promise.all(
       batch.map(async (meta): Promise<TickerNews> => {
         try {
-          const headlines = await fetchTickerNews(meta.symbol, meta.name, meta.market);
+          const headlines = await fetchTickerNews(meta);
           return { ticker: meta.symbol, headlines };
         } catch {
           return { ticker: meta.symbol, headlines: [] };
@@ -150,7 +134,7 @@ export function newsRouter(): Router {
 
     try {
       const gnews = await fetchGNewsHeadlines(symbol, `${meta.name} stock`);
-      const headlines = gnews ?? (await fetchTickerNews(meta.symbol, meta.name, meta.market));
+      const headlines = gnews ?? (await fetchTickerNews(meta));
       singleTickerCache.set(symbol, { expires: Date.now() + SINGLE_TICKER_CACHE_TTL_MS, value: headlines });
       res.json({ data: headlines, generatedAt: new Date().toISOString(), source: gnews ? 'gnews' : 'yahoo' });
     } catch (err) {

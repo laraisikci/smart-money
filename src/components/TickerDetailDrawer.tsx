@@ -1,6 +1,24 @@
 import { useEffect, useState } from 'react';
-import { X, Calendar, Percent, TrendingDown, Newspaper, ExternalLink } from 'lucide-react';
-import type { ConvictionResult, InsiderTrade, InstitutionalPosition, PolymarketMarket, NewsHeadline } from '@/types';
+import {
+  X,
+  Calendar,
+  Percent,
+  TrendingDown,
+  Newspaper,
+  ExternalLink,
+  Sparkles,
+  LineChart,
+  ChevronDown,
+  ChevronUp,
+} from 'lucide-react';
+import type {
+  ConvictionResult,
+  InsiderTrade,
+  InstitutionalPosition,
+  PolymarketMarket,
+  NewsHeadline,
+  TechnicalIndicators,
+} from '@/types';
 import { getEarningsDate, daysUntilEarnings } from '@/data/earnings';
 import { getShortInterest, shortInterestLevel } from '@/data/shortInterest';
 import { getTickerMeta } from '@/data/tickers';
@@ -8,7 +26,39 @@ import { SignalIcons, ActionBadge, MarketTag, FundAvatar } from '@/components/ui
 import { FUND_MAP } from '@/data/funds';
 import { formatCurrency, formatShares, formatDate, timeAgo } from '@/lib/format';
 import { SENTIMENT_DIRECTION } from '@/lib/newsSentiment';
+import { reasonAboutTechnicals, rsiZone, stochZone, vsAverage, type Zone } from '@/lib/technicalReasoning';
+import { buildFullAnalysis } from '@/lib/fullAnalysis';
 import { api } from '@/lib/api';
+
+const fmtPrice = (v: number) => `$${v.toFixed(2)}`;
+
+function zoneColor(zone: Zone): string {
+  if (zone === 'Overbought') return 'text-bear-400';
+  if (zone === 'Oversold') return 'text-bull-400';
+  return 'text-warn-400';
+}
+
+function IndicatorTile({
+  label,
+  value,
+  badgeText,
+  badgeColorClass,
+}: {
+  label: string;
+  value: string;
+  badgeText?: string;
+  badgeColorClass?: string;
+}) {
+  return (
+    <div className="card p-3">
+      <p className="text-2xs text-ink-500">{label}</p>
+      <div className="mt-1 flex items-center justify-between gap-2">
+        <span className="font-mono text-sm font-bold text-ink-50">{value}</span>
+        {badgeText && <span className={`text-2xs font-semibold ${badgeColorClass}`}>{badgeText}</span>}
+      </div>
+    </div>
+  );
+}
 
 interface TickerDetailDrawerProps {
   result: ConvictionResult | null;
@@ -57,6 +107,34 @@ export function TickerDetailDrawer({
     };
   }, [result]);
 
+  // Technical indicators are computed server-side per ticker on demand (see /api/technicals/:ticker)
+  // rather than bulk-fetched for the whole universe — nothing outside this drawer needs them.
+  const [technicals, setTechnicals] = useState<TechnicalIndicators | null>(null);
+  const [technicalsLoading, setTechnicalsLoading] = useState(false);
+  useEffect(() => {
+    setTechnicals(null);
+    if (!result) return;
+    let cancelled = false;
+    setTechnicalsLoading(true);
+    api
+      .technicalsForTicker(result.ticker)
+      .then((res) => {
+        if (!cancelled) setTechnicals(res.data);
+      })
+      .catch(() => {
+        // no technicals for this ticker (e.g. not enough price history, or Yahoo unreachable) —
+        // the section below just doesn't render rather than showing an error
+      })
+      .finally(() => {
+        if (!cancelled) setTechnicalsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [result]);
+
+  const [fullAnalysisOpen, setFullAnalysisOpen] = useState(false);
+
   if (!result) return null;
 
   const meta = getTickerMeta(result.ticker);
@@ -69,6 +147,8 @@ export function TickerDetailDrawer({
   const institutions = allInstitutions.filter((p) => p.ticker === result.ticker);
   const polymarkets = allPolymarket.filter((m) => m.relatedTickers.includes(result.ticker));
   const news = onDemandNews ?? bulkNews;
+  const techReasoning = technicals ? reasonAboutTechnicals(technicals) : null;
+  const fullAnalysis = buildFullAnalysis(result, technicals, news);
 
   return (
     <>
@@ -178,6 +258,127 @@ export function TickerDetailDrawer({
               ))}
             </div>
           </div>
+
+          {/* Full Analysis — combined reasoning across every signal this app tracks */}
+          {fullAnalysis && (
+            <div className="card overflow-hidden">
+              <button
+                onClick={() => setFullAnalysisOpen((o) => !o)}
+                className="flex w-full items-center justify-between gap-2 p-4 text-left"
+              >
+                <div className="flex items-center gap-1.5">
+                  <Sparkles className="h-3.5 w-3.5 text-teal-400" />
+                  <h4 className="text-xs font-medium uppercase tracking-wider text-ink-400">
+                    Full Analysis
+                  </h4>
+                </div>
+                {fullAnalysisOpen ? (
+                  <ChevronUp className="h-4 w-4 shrink-0 text-ink-500" />
+                ) : (
+                  <ChevronDown className="h-4 w-4 shrink-0 text-ink-500" />
+                )}
+              </button>
+              {fullAnalysisOpen && (
+                <div className="border-t border-ink-700/40 px-4 pb-4 pt-3">
+                  <p className="text-xs leading-relaxed text-ink-300">{fullAnalysis.paragraph}</p>
+                  <p className="mt-3 font-mono text-xs font-bold text-teal-300">
+                    Overall verdict: {fullAnalysis.verdict}
+                  </p>
+                  <p className="mt-2 text-2xs text-ink-600">
+                    This analysis is generated from public data. Not financial advice.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Technical Analysis */}
+          {(technicalsLoading || technicals) && (
+            <div>
+              <div className="mb-2 flex items-center gap-1.5">
+                <LineChart className="h-3.5 w-3.5 text-ink-400" />
+                <h4 className="text-xs font-medium uppercase tracking-wider text-ink-400">
+                  Technical Analysis
+                </h4>
+              </div>
+
+              {technicalsLoading && !technicals && (
+                <div className="grid grid-cols-2 gap-2">
+                  {Array.from({ length: 6 }).map((_, i) => (
+                    <div key={i} className="card shimmer h-14 w-full" />
+                  ))}
+                </div>
+              )}
+
+              {technicals && (
+                <div className="space-y-4">
+                  <div>
+                    <p className="mb-2 text-2xs font-medium text-ink-500">Moving Averages</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      {(
+                        [
+                          ['SMA 20', technicals.sma20],
+                          ['SMA 50', technicals.sma50],
+                          ['SMA 200', technicals.sma200],
+                          ['EMA 20', technicals.ema20],
+                          ['EMA 50', technicals.ema50],
+                          ['EMA 200', technicals.ema200],
+                        ] as [string, number | null][]
+                      ).map(([label, value]) => {
+                        if (value === null) return null;
+                        const rel = vsAverage(technicals.price, value);
+                        return (
+                          <IndicatorTile
+                            key={label}
+                            label={label}
+                            value={fmtPrice(value)}
+                            badgeText={rel === 'Above' ? 'Bullish' : 'Bearish'}
+                            badgeColorClass={rel === 'Above' ? 'text-bull-400' : 'text-bear-400'}
+                          />
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div>
+                    <p className="mb-2 text-2xs font-medium text-ink-500">Oscillators</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      {technicals.rsi14 !== null && (
+                        <IndicatorTile
+                          label="RSI 14"
+                          value={technicals.rsi14.toFixed(1)}
+                          badgeText={rsiZone(technicals.rsi14)}
+                          badgeColorClass={zoneColor(rsiZone(technicals.rsi14))}
+                        />
+                      )}
+                      {technicals.stochK !== null && technicals.stochD !== null && (
+                        <IndicatorTile
+                          label="Stochastic %K/%D"
+                          value={`${technicals.stochK.toFixed(1)} / ${technicals.stochD.toFixed(1)}`}
+                          badgeText={stochZone(technicals.stochK)}
+                          badgeColorClass={zoneColor(stochZone(technicals.stochK))}
+                        />
+                      )}
+                    </div>
+                  </div>
+
+                  {techReasoning && (
+                    <div className="card p-3">
+                      <p className="text-2xs font-medium uppercase tracking-wider text-ink-500">
+                        What this means
+                      </p>
+                      <p className="mt-1.5 text-xs leading-relaxed text-ink-300">
+                        {techReasoning.paragraph}
+                      </p>
+                      <p className="mt-2 font-mono text-xs font-bold text-teal-300">
+                        Technical verdict: {techReasoning.verdict}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Recent insider trades */}
           {insiders.length > 0 && (
