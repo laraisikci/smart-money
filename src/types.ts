@@ -179,3 +179,40 @@ export interface ShortInterest {
   daysToCover: number;
   source: 'sample';
 }
+
+export interface SearchResult {
+  symbol: string;
+  name: string;
+  exchange: string;
+  market: 'EU' | 'US';
+  currency: Currency;
+  sector: Sector;
+  tracked: boolean;
+}
+
+// What's actually needed to request or save an analysis — SearchResult satisfies this, but so
+// does a WatchlistEntry or a ConvictionResult, without callers having to fake the extra fields.
+export type AnalyzeTarget = Pick<SearchResult, 'symbol' | 'name' | 'market' | 'currency' | 'sector'>;
+
+export interface AnalyzeResponse {
+  ticker: string;
+  name: string;
+  market: 'EU' | 'US';
+  currency: Currency;
+  sector: Sector;
+  insiders: InsiderTrade[];
+  institutions: InstitutionalPosition[];
+  news: NewsHeadline[];
+  technicals: TechnicalIndicators | null;
+  insidersFilerFound: boolean;
+  generatedAt: string;
+}
+
+export interface WatchlistEntry {
+  symbol: string;
+  name: string;
+  market: 'EU' | 'US';
+  currency: Currency;
+  sector: Sector;
+  addedAt: string;
+}

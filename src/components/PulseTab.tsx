@@ -68,9 +68,17 @@ function MacroCard({ indicator }: { indicator: MacroIndicator }) {
   );
 }
 
-function GridSkeleton({ count, height }: { count: number; height: string }) {
+function GridSkeleton({
+  count,
+  height,
+  desktopCols = 3,
+}: {
+  count: number;
+  height: string;
+  desktopCols?: 3 | 4;
+}) {
   return (
-    <div className="grid grid-cols-2 gap-3">
+    <div className={`grid grid-cols-2 gap-3 ${desktopCols === 4 ? 'lg:grid-cols-4' : 'lg:grid-cols-3'}`}>
       {Array.from({ length: count }).map((_, i) => (
         <div key={i} className={`card shimmer w-full ${height}`} />
       ))}
@@ -198,11 +206,11 @@ export function PulseTab() {
         <p className="mb-3 text-xs font-medium uppercase tracking-wider text-ink-400">
           Macro Indicators
         </p>
-        {macro.loading && <GridSkeleton count={6} height="h-28" />}
+        {macro.loading && <GridSkeleton count={6} height="h-28" desktopCols={3} />}
         {macro.error && <ErrorCard message={macro.error} onRetry={macro.refetch} />}
         {macro.data && (
           <>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
               {macro.data.data.map((ind) => (
                 <MacroCard key={ind.id} indicator={ind} />
               ))}
@@ -224,9 +232,9 @@ export function PulseTab() {
             Sector Rotation Signal
           </p>
         </div>
-        {macro.loading && <GridSkeleton count={8} height="h-20" />}
+        {macro.loading && <GridSkeleton count={8} height="h-20" desktopCols={4} />}
         {macro.data && (
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             {sectorPulses.map((p) => (
               <SectorTile key={p.sector} pulse={p} />
             ))}

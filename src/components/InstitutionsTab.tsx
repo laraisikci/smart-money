@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Building2, TrendingUp, ArrowUpRight } from 'lucide-react';
+import { Building2, TrendingUp, ArrowUpRight, ArrowUp, ArrowDown, ChevronsUpDown } from 'lucide-react';
 import { FUNDS, FUND_MAP } from '@/data/funds';
 import { api } from '@/lib/api';
 import { useApi } from '@/lib/useApi';
@@ -9,12 +9,57 @@ import { ActionBadge, FundAvatar, MarketTag, LoadingCards, ErrorCard } from '@/c
 import { getTickerMeta } from '@/data/tickers';
 
 type FilterMode = 'all' | 'bullish';
+type SortKey = 'company' | 'fund' | 'action' | 'value' | 'date';
+type SortDirection = 'asc' | 'desc';
+
+function SortHeader({
+  label,
+  sortKey,
+  activeKey,
+  direction,
+  onSort,
+  align = 'left',
+}: {
+  label: string;
+  sortKey: SortKey;
+  activeKey: SortKey;
+  direction: SortDirection;
+  onSort: (key: SortKey) => void;
+  align?: 'left' | 'right';
+}) {
+  const isActive = activeKey === sortKey;
+  const Icon = isActive ? (direction === 'asc' ? ArrowUp : ArrowDown) : ChevronsUpDown;
+  return (
+    <th
+      className={`px-3 py-2.5 text-2xs font-medium uppercase tracking-wider text-ink-400 ${align === 'right' ? 'text-right' : 'text-left'}`}
+    >
+      <button
+        onClick={() => onSort(sortKey)}
+        className={`inline-flex items-center gap-1 transition-colors hover:text-ink-100 ${isActive ? 'text-teal-300' : ''} ${align === 'right' ? 'flex-row-reverse' : ''}`}
+      >
+        {label}
+        <Icon className="h-3 w-3" />
+      </button>
+    </th>
+  );
+}
 
 export function InstitutionsTab() {
   const [activeFund, setActiveFund] = useState<string>('ALL');
   const [filterMode, setFilterMode] = useState<FilterMode>('bullish');
+  const [sortKey, setSortKey] = useState<SortKey>('date');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const { data, loading, error, refetch } = useApi(api.institutions, 'institutions');
   const positions = useMemo(() => data?.data ?? [], [data]);
+
+  function handleSort(key: SortKey) {
+    if (key === sortKey) {
+      setSortDirection((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortKey(key);
+      setSortDirection(key === 'company' || key === 'fund' || key === 'action' ? 'asc' : 'desc');
+    }
+  }
 
   const filtered = useMemo(() => {
     let list = [...positions];
@@ -28,6 +73,26 @@ export function InstitutionsTab() {
       (a, b) => new Date(b.filingDate).getTime() - new Date(a.filingDate).getTime(),
     );
   }, [positions, activeFund, filterMode]);
+
+  // Desktop table only — the mobile card list always stays date-sorted (filtered's own order).
+  const sortedForTable = useMemo(() => {
+    const dir = sortDirection === 'asc' ? 1 : -1;
+    return [...filtered].sort((a, b) => {
+      switch (sortKey) {
+        case 'company':
+          return dir * a.ticker.localeCompare(b.ticker);
+        case 'fund':
+          return dir * a.fundName.localeCompare(b.fundName);
+        case 'action':
+          return dir * a.action.localeCompare(b.action);
+        case 'value':
+          return dir * (a.marketValue - b.marketValue);
+        case 'date':
+        default:
+          return dir * (new Date(a.filingDate).getTime() - new Date(b.filingDate).getTime());
+      }
+    });
+  }, [filtered, sortKey, sortDirection]);
 
   // Most bought this quarter — tickers appearing most frequently as new/increased
   const mostBought = useMemo(() => {
@@ -148,12 +213,34 @@ export function InstitutionsTab() {
         </button>
       </div>
 
-      {/* Position cards */}
-      <div className="space-y-3">
+      {/* Position cards — mobile/tablet */}
+      <div className="space-y-3 lg:hidden">
         {filtered.map((pos) => (
           <PositionCard key={pos.id} pos={pos} />
         ))}
       </div>
+
+      {/* Data table — desktop */}
+      {filtered.length > 0 && (
+        <div className="card hidden overflow-x-auto lg:block">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-ink-700/40">
+                <SortHeader label="Company" sortKey="company" activeKey={sortKey} direction={sortDirection} onSort={handleSort} />
+                <SortHeader label="Fund" sortKey="fund" activeKey={sortKey} direction={sortDirection} onSort={handleSort} />
+                <SortHeader label="Action" sortKey="action" activeKey={sortKey} direction={sortDirection} onSort={handleSort} />
+                <SortHeader label="Value" sortKey="value" activeKey={sortKey} direction={sortDirection} onSort={handleSort} align="right" />
+                <SortHeader label="Date" sortKey="date" activeKey={sortKey} direction={sortDirection} onSort={handleSort} align="right" />
+              </tr>
+            </thead>
+            <tbody>
+              {sortedForTable.map((pos) => (
+                <InstitutionTableRow key={pos.id} pos={pos} />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {filtered.length === 0 && (
         <div className="py-12 text-center text-sm text-ink-400">
@@ -221,5 +308,39 @@ function PositionCard({ pos }: { pos: InstitutionalPosition }) {
         </div>
       </div>
     </div>
+  );
+}
+
+function InstitutionTableRow({ pos }: { pos: InstitutionalPosition }) {
+  const fund = FUND_MAP[pos.fundSlug];
+  const meta = getTickerMeta(pos.ticker);
+  const isBullish = pos.action === 'new' || pos.action === 'increased';
+
+  return (
+    <tr className="border-b border-ink-700/40 transition-colors last:border-0 hover:bg-ink-800/40">
+      <td className="px-3 py-3">
+        <div className="flex items-center gap-2">
+          <span className="font-mono text-xs font-bold text-ink-50">{pos.ticker}</span>
+          <MarketTag market={meta.market} currency={meta.currency} />
+        </div>
+        <p className="mt-0.5 truncate text-2xs text-ink-500">{pos.companyName}</p>
+      </td>
+      <td className="px-3 py-3">
+        <div className="flex items-center gap-2">
+          <FundAvatar slug={pos.fundSlug} color={fund?.color ?? '#4a5668'} size="sm" />
+          <span className="text-xs text-ink-200">{pos.fundName}</span>
+        </div>
+      </td>
+      <td className="px-3 py-3">
+        <ActionBadge action={pos.action} />
+      </td>
+      <td className="px-3 py-3 text-right">
+        <p className="font-mono text-xs font-semibold text-ink-100">{formatCurrency(pos.marketValue)}</p>
+        <p className={`text-2xs font-medium ${isBullish ? 'text-bull-400' : 'text-bear-400'}`}>
+          {formatPct(pos.pctChange)} · {formatShares(pos.shares)} sh
+        </p>
+      </td>
+      <td className="px-3 py-3 text-right text-2xs text-ink-500">{timeAgo(pos.filingDate)}</td>
+    </tr>
   );
 }

@@ -294,9 +294,28 @@ export const TICKER_MAP: Record<string, TickerMeta> = Object.fromEntries(
   TICKERS.map((t) => [t.symbol, t]),
 );
 
+// Populated at runtime when a stock search result is fetched (see lib/adhocTickers.ts) — lets
+// getTickerMeta() (and everything built on it, e.g. computeConviction's sector/currency/name
+// lookup) return the real metadata for a searched-but-untracked ticker instead of falling
+// through to the generic guess below.
+const adHocTickerMap = new Map<string, TickerMeta>();
+
+export function registerAdHocTicker(meta: TickerMeta): void {
+  adHocTickerMap.set(meta.symbol, meta);
+}
+
+// True only for the ~250 pre-tracked tickers with real bulk-fetched data (insiders/institutions/
+// news bulk endpoints, and /api/technicals + /api/news single-ticker routes) — false for anything
+// reached via search or the watchlist, which need the ad-hoc /api/search/analyze data path
+// instead since those per-ticker routes would 404 for them.
+export function isTrackedTicker(symbol: string): boolean {
+  return symbol in TICKER_MAP;
+}
+
 export function getTickerMeta(symbol: string): TickerMeta {
   return (
-    TICKER_MAP[symbol] ?? {
+    TICKER_MAP[symbol] ??
+    adHocTickerMap.get(symbol) ?? {
       symbol,
       name: symbol,
       sector: 'Tech',

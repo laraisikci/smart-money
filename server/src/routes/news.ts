@@ -1,16 +1,12 @@
 import { Router } from 'express';
 import { TICKERS } from '../data/tickers.js';
 import type { TickerMeta } from '../data/tickers.js';
-import { fetchNewsRss } from '../lib/newsClient.js';
 import { resolveTickerYahooSymbol } from '../lib/yahooSymbolResolver.js';
 import { fetchGNewsHeadlines } from '../lib/gnewsClient.js';
-import { xmlParser, toArray } from '../lib/xml.js';
-import { classifySentiment } from '../lib/sentiment.js';
+import { fetchNewsForYahooSymbol } from '../lib/newsFetch.js';
 import type { NewsHeadline, TickerNews } from '../types.js';
 
-const HEADLINES_PER_TICKER = 5;
 const RESPONSE_CACHE_TTL_MS = 2 * 60 * 60_000; // 2h, per spec
-const RSS_CACHE_TTL_MS = 2 * 60 * 60_000; // matches the response cache — no point outliving it
 const TICKER_BATCH_SIZE = 20;
 
 function chunk<T>(items: T[], size: number): T[][] {
@@ -19,42 +15,10 @@ function chunk<T>(items: T[], size: number): T[][] {
   return out;
 }
 
-interface RssItem {
-  title?: unknown;
-  link?: unknown;
-  pubDate?: unknown;
-}
-
 async function fetchTickerNews(meta: TickerMeta): Promise<NewsHeadline[]> {
-  const ourSymbol = meta.symbol;
   const yahooSymbol = await resolveTickerYahooSymbol(meta);
   if (!yahooSymbol) return [];
-
-  const xml = await fetchNewsRss(
-    `https://feeds.finance.yahoo.com/rss/2.0/headline?s=${encodeURIComponent(yahooSymbol)}`,
-    RSS_CACHE_TTL_MS,
-  );
-  const parsed = xmlParser.parse(xml)?.rss?.channel;
-  const items = toArray<RssItem>(parsed?.item);
-
-  const headlines: NewsHeadline[] = [];
-  for (const item of items) {
-    if (headlines.length >= HEADLINES_PER_TICKER) break;
-    const title = typeof item?.title === 'string' ? item.title : null;
-    const link = typeof item?.link === 'string' ? item.link : null;
-    if (!title || !link || !item?.pubDate) continue;
-    const published = new Date(String(item.pubDate));
-    if (Number.isNaN(published.getTime())) continue;
-
-    headlines.push({
-      ticker: ourSymbol,
-      title,
-      url: link,
-      publishedAt: published.toISOString(),
-      sentiment: classifySentiment(title),
-    });
-  }
-  return headlines;
+  return fetchNewsForYahooSymbol(yahooSymbol, meta.symbol);
 }
 
 interface ResponseCacheEntry {

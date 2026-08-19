@@ -9,6 +9,7 @@ import { congressRouter } from './routes/congress.js';
 import { newsRouter } from './routes/news.js';
 import { macroRouter } from './routes/macro.js';
 import { technicalsRouter } from './routes/technicals.js';
+import { searchRouter } from './routes/search.js';
 
 const PORT = Number(process.env.PORT ?? 8787);
 const CORS_ORIGIN = process.env.CORS_ORIGIN ?? 'http://localhost:5173';
@@ -26,6 +27,7 @@ app.use('/api/congress', congressRouter());
 app.use('/api/news', newsRouter());
 app.use('/api/macro', macroRouter());
 app.use('/api/technicals', technicalsRouter());
+app.use('/api/search', searchRouter());
 
 // Bind explicitly to 0.0.0.0 — omitting the host can resolve to an IPv6-only (`::`) socket
 // depending on the container's networking, which Railway's health-check prober can't reach.

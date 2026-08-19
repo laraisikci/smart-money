@@ -10,6 +10,8 @@ import {
   LineChart,
   ChevronDown,
   ChevronUp,
+  Bookmark,
+  BookmarkCheck,
 } from 'lucide-react';
 import type {
   ConvictionResult,
@@ -74,6 +76,14 @@ interface TickerDetailDrawerProps {
   institutions: InstitutionalPosition[];
   polymarket: PolymarketMarket[];
   news: NewsHeadline[];
+  // Set (to a value or null) only for ad-hoc search results, which already carry their own
+  // fully-fetched technicals from /api/search/analyze — skips the normal per-ticker on-demand
+  // fetch below, which would 404 for a ticker outside the pre-tracked universe. Left undefined
+  // for every other caller, which keeps the existing on-demand fetch behavior unchanged.
+  technicalsOverride?: TechnicalIndicators | null;
+  skipNewsFetch?: boolean;
+  watchlisted?: boolean;
+  onToggleWatchlist?: () => void;
 }
 
 export function TickerDetailDrawer({
@@ -83,6 +93,10 @@ export function TickerDetailDrawer({
   institutions: allInstitutions,
   polymarket: allPolymarket,
   news: bulkNews,
+  technicalsOverride,
+  skipNewsFetch,
+  watchlisted,
+  onToggleWatchlist,
 }: TickerDetailDrawerProps) {
   useEffect(() => {
     if (result) {
@@ -99,7 +113,7 @@ export function TickerDetailDrawer({
   const [onDemandNews, setOnDemandNews] = useState<NewsHeadline[] | null>(null);
   useEffect(() => {
     setOnDemandNews(null);
-    if (!result) return;
+    if (!result || skipNewsFetch) return;
     let cancelled = false;
     api
       .newsForTicker(result.ticker)
@@ -112,13 +126,15 @@ export function TickerDetailDrawer({
     return () => {
       cancelled = true;
     };
-  }, [result]);
+  }, [result, skipNewsFetch]);
 
   // Technical indicators are computed server-side per ticker on demand (see /api/technicals/:ticker)
   // rather than bulk-fetched for the whole universe — nothing outside this drawer needs them.
+  // Skipped entirely when technicalsOverride is set (ad-hoc search results already have theirs).
   const [technicals, setTechnicals] = useState<TechnicalIndicators | null>(null);
   const [technicalsLoading, setTechnicalsLoading] = useState(false);
   useEffect(() => {
+    if (technicalsOverride !== undefined) return;
     setTechnicals(null);
     if (!result) return;
     let cancelled = false;
@@ -138,7 +154,9 @@ export function TickerDetailDrawer({
     return () => {
       cancelled = true;
     };
-  }, [result]);
+  }, [result, technicalsOverride]);
+
+  const effectiveTechnicals = technicalsOverride !== undefined ? technicalsOverride : technicals;
 
   const [fullAnalysisOpen, setFullAnalysisOpen] = useState(false);
 
@@ -154,9 +172,9 @@ export function TickerDetailDrawer({
   const institutions = allInstitutions.filter((p) => p.ticker === result.ticker);
   const polymarkets = allPolymarket.filter((m) => m.relatedTickers.includes(result.ticker));
   const news = onDemandNews ?? bulkNews;
-  const techReasoning = technicals ? reasonAboutTechnicals(technicals) : null;
-  const techScore = technicals ? technicalScore(technicals) : null;
-  const fullAnalysis = buildFullAnalysis(result, technicals, news);
+  const techReasoning = effectiveTechnicals ? reasonAboutTechnicals(effectiveTechnicals) : null;
+  const techScore = effectiveTechnicals ? technicalScore(effectiveTechnicals) : null;
+  const fullAnalysis = buildFullAnalysis(result, effectiveTechnicals, news);
 
   return (
     <>
@@ -166,11 +184,11 @@ export function TickerDetailDrawer({
         onClick={onClose}
       />
 
-      {/* Drawer */}
-      <div className="fixed bottom-0 left-1/2 z-50 max-h-[85vh] w-full max-w-md translate-x-[-50%] overflow-y-auto rounded-t-3xl border-t border-ink-700 bg-ink-900 pb-[env(safe-area-inset-bottom)]">
+      {/* Drawer — a bottom sheet on mobile, a centered wide modal with a 2-panel layout at lg: */}
+      <div className="fixed bottom-0 left-1/2 z-50 max-h-[85vh] w-full max-w-md translate-x-[-50%] overflow-y-auto rounded-t-3xl border-t border-ink-700 bg-ink-900 pb-[env(safe-area-inset-bottom)] lg:top-1/2 lg:bottom-auto lg:max-h-[85vh] lg:w-full lg:max-w-4xl lg:-translate-y-1/2 lg:rounded-3xl lg:border">
         {/* Drag handle */}
-        <div className="sticky top-0 z-10 flex items-center justify-between bg-ink-900/95 px-5 py-3 backdrop-blur-md">
-          <div className="mx-auto h-1 w-10 rounded-full bg-ink-600 absolute left-1/2 top-2 translate-x-[-50%]" />
+        <div className="sticky top-0 z-10 flex items-center justify-between bg-ink-900/95 px-5 py-3 backdrop-blur-md lg:rounded-t-3xl lg:px-6">
+          <div className="mx-auto h-1 w-10 rounded-full bg-ink-600 absolute left-1/2 top-2 translate-x-[-50%] lg:hidden" />
           <div className="flex items-center gap-2">
             <span className="font-mono text-lg font-bold text-ink-50">{result.ticker}</span>
             <MarketTag market={meta.market} currency={meta.currency} />
@@ -183,10 +201,29 @@ export function TickerDetailDrawer({
           </button>
         </div>
 
-        <div className="space-y-5 px-5 pb-6">
-          {/* Header */}
-          <div>
-            <h3 className="text-base font-semibold text-ink-50">{result.name}</h3>
+        <div className="space-y-5 px-5 pb-6 lg:grid lg:grid-cols-2 lg:items-start lg:gap-x-6 lg:gap-y-5 lg:space-y-0 lg:px-6 lg:pb-8">
+          {/* Header — spans both panels on desktop */}
+          <div className="lg:col-span-2">
+            <div className="flex items-start justify-between gap-3">
+              <h3 className="text-base font-semibold text-ink-50">{result.name}</h3>
+              {onToggleWatchlist && (
+                <button
+                  onClick={onToggleWatchlist}
+                  className={`flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-2xs font-medium transition-colors ${
+                    watchlisted
+                      ? 'border-teal-500/40 bg-teal-400/15 text-teal-300'
+                      : 'border-ink-700 bg-ink-800/60 text-ink-300 hover:border-ink-600 hover:text-ink-100'
+                  }`}
+                >
+                  {watchlisted ? (
+                    <BookmarkCheck className="h-3.5 w-3.5" />
+                  ) : (
+                    <Bookmark className="h-3.5 w-3.5" />
+                  )}
+                  {watchlisted ? 'Watchlisted' : 'Save to Watchlist'}
+                </button>
+              )}
+            </div>
             <div className="mt-1 flex items-center gap-2">
               <span className="rounded-full bg-ink-700/50 px-2 py-0.5 text-2xs font-medium text-ink-300">
                 {result.sector}
@@ -196,7 +233,7 @@ export function TickerDetailDrawer({
           </div>
 
           {/* Conviction score */}
-          <div className="card flex items-center justify-between p-4">
+          <div className="card flex items-center justify-between p-4 lg:col-start-1">
             <div>
               <p className="text-xs text-ink-400">Conviction Score</p>
               <p className="mt-0.5 text-2xs text-ink-500">Weighted across {result.signalsActive.length} signal{result.signalsActive.length !== 1 ? 's' : ''}</p>
@@ -206,7 +243,7 @@ export function TickerDetailDrawer({
 
           {/* Earnings date */}
           {earnings && daysToEarn !== null && daysToEarn > 0 && (
-            <div className="flex items-center gap-3 rounded-xl border border-warn-500/20 bg-warn-500/5 px-4 py-3">
+            <div className="flex items-center gap-3 rounded-xl border border-warn-500/20 bg-warn-500/5 px-4 py-3 lg:col-start-1">
               <Calendar className="h-4.5 w-4.5 text-warn-400" />
               <div>
                 <p className="text-xs font-semibold text-warn-300">
@@ -219,7 +256,7 @@ export function TickerDetailDrawer({
 
           {/* Short interest */}
           {shortInt && siLevel && (
-            <div className="card p-4">
+            <div className="card p-4 lg:col-start-1">
               <div className="mb-3 flex items-center gap-2">
                 <TrendingDown className="h-4 w-4 text-ink-400" />
                 <h4 className="text-xs font-medium uppercase tracking-wider text-ink-400">
@@ -250,7 +287,7 @@ export function TickerDetailDrawer({
           )}
 
           {/* Signal breakdown */}
-          <div>
+          <div className="lg:col-start-1">
             <h4 className="mb-2 text-xs font-medium uppercase tracking-wider text-ink-400">
               Signal Breakdown
             </h4>
@@ -269,7 +306,7 @@ export function TickerDetailDrawer({
 
           {/* Full Analysis — combined reasoning across every signal this app tracks */}
           {fullAnalysis && (
-            <div className="card overflow-hidden">
+            <div className="card overflow-hidden lg:col-start-1">
               <button
                 onClick={() => setFullAnalysisOpen((o) => !o)}
                 className="flex w-full items-center justify-between gap-2 p-4 text-left"
@@ -301,8 +338,8 @@ export function TickerDetailDrawer({
           )}
 
           {/* Technical Analysis */}
-          {(technicalsLoading || technicals) && (
-            <div>
+          {(technicalsLoading || effectiveTechnicals) && (
+            <div className="lg:col-start-2">
               <div className="mb-2 flex items-center gap-1.5">
                 <LineChart className="h-3.5 w-3.5 text-ink-400" />
                 <h4 className="text-xs font-medium uppercase tracking-wider text-ink-400">
@@ -310,7 +347,7 @@ export function TickerDetailDrawer({
                 </h4>
               </div>
 
-              {technicalsLoading && !technicals && (
+              {technicalsLoading && !effectiveTechnicals && (
                 <div className="grid grid-cols-2 gap-2">
                   {Array.from({ length: 6 }).map((_, i) => (
                     <div key={i} className="card shimmer h-14 w-full" />
@@ -318,7 +355,7 @@ export function TickerDetailDrawer({
                 </div>
               )}
 
-              {technicals && (
+              {effectiveTechnicals && (
                 <div className="space-y-4">
                   {techScore && (
                     <div className="card flex items-center justify-between p-4">
@@ -341,16 +378,16 @@ export function TickerDetailDrawer({
                     <div className="grid grid-cols-2 gap-2">
                       {(
                         [
-                          ['SMA 20', technicals.sma20],
-                          ['SMA 50', technicals.sma50],
-                          ['SMA 200', technicals.sma200],
-                          ['EMA 20', technicals.ema20],
-                          ['EMA 50', technicals.ema50],
-                          ['EMA 200', technicals.ema200],
+                          ['SMA 20', effectiveTechnicals.sma20],
+                          ['SMA 50', effectiveTechnicals.sma50],
+                          ['SMA 200', effectiveTechnicals.sma200],
+                          ['EMA 20', effectiveTechnicals.ema20],
+                          ['EMA 50', effectiveTechnicals.ema50],
+                          ['EMA 200', effectiveTechnicals.ema200],
                         ] as [string, number | null][]
                       ).map(([label, value]) => {
                         if (value === null) return null;
-                        const rel = vsAverage(technicals.price, value);
+                        const rel = vsAverage(effectiveTechnicals.price, value);
                         return (
                           <IndicatorTile
                             key={label}
@@ -367,20 +404,20 @@ export function TickerDetailDrawer({
                   <div>
                     <p className="mb-2 text-2xs font-medium text-ink-500">Oscillators</p>
                     <div className="grid grid-cols-2 gap-2">
-                      {technicals.rsi14 !== null && (
+                      {effectiveTechnicals.rsi14 !== null && (
                         <IndicatorTile
                           label="RSI 14"
-                          value={technicals.rsi14.toFixed(1)}
-                          badgeText={rsiZone(technicals.rsi14)}
-                          badgeColorClass={zoneColor(rsiZone(technicals.rsi14))}
+                          value={effectiveTechnicals.rsi14.toFixed(1)}
+                          badgeText={rsiZone(effectiveTechnicals.rsi14)}
+                          badgeColorClass={zoneColor(rsiZone(effectiveTechnicals.rsi14))}
                         />
                       )}
-                      {technicals.stochK !== null && technicals.stochD !== null && (
+                      {effectiveTechnicals.stochK !== null && effectiveTechnicals.stochD !== null && (
                         <IndicatorTile
                           label="Stochastic %K/%D"
-                          value={`${technicals.stochK.toFixed(1)} / ${technicals.stochD.toFixed(1)}`}
-                          badgeText={stochZone(technicals.stochK)}
-                          badgeColorClass={zoneColor(stochZone(technicals.stochK))}
+                          value={`${effectiveTechnicals.stochK.toFixed(1)} / ${effectiveTechnicals.stochD.toFixed(1)}`}
+                          badgeText={stochZone(effectiveTechnicals.stochK)}
+                          badgeColorClass={zoneColor(stochZone(effectiveTechnicals.stochK))}
                         />
                       )}
                     </div>
@@ -406,7 +443,7 @@ export function TickerDetailDrawer({
 
           {/* Recent insider trades */}
           {insiders.length > 0 && (
-            <div>
+            <div className="lg:col-start-2">
               <h4 className="mb-2 text-xs font-medium uppercase tracking-wider text-ink-400">
                 Insider Trades
               </h4>
@@ -436,7 +473,7 @@ export function TickerDetailDrawer({
 
           {/* Institutional positions */}
           {institutions.length > 0 && (
-            <div>
+            <div className="lg:col-start-2">
               <h4 className="mb-2 text-xs font-medium uppercase tracking-wider text-ink-400">
                 Institutional Positions
               </h4>
@@ -472,7 +509,7 @@ export function TickerDetailDrawer({
 
           {/* Related prediction markets */}
           {polymarkets.length > 0 && (
-            <div>
+            <div className="lg:col-start-2">
               <h4 className="mb-2 text-xs font-medium uppercase tracking-wider text-ink-400">
                 Prediction Markets
               </h4>
@@ -496,7 +533,7 @@ export function TickerDetailDrawer({
 
           {/* Recent news */}
           {news.length > 0 && (
-            <div>
+            <div className="lg:col-start-2">
               <div className="mb-2 flex items-center gap-1.5">
                 <Newspaper className="h-3.5 w-3.5 text-ink-400" />
                 <h4 className="text-xs font-medium uppercase tracking-wider text-ink-400">

@@ -76,12 +76,16 @@ export async function resolveYahooSymbol(companyName: string): Promise<string | 
 
 // A couple of EU tickers where Yahoo's own search doesn't reliably surface the correct primary
 // listing even after name normalization — verified directly (see resolveYahooSymbol above):
-// "sanofi" surfaces a secondary Frankfurt listing (SNW.F) instead of the Paris primary. Checked
-// before the generic resolver; not an attempt to hand-map all ~150 EU tickers, just the ones a
-// concrete test showed were wrong. Shared by every route that needs a ticker's Yahoo symbol
-// (news headlines, technical indicators) so the override list only lives in one place.
+// "sanofi" surfaces a secondary Frankfurt listing (SNW.F) instead of the Paris primary, and
+// "inditex" never surfaces its Madrid primary (ITX.MC) at all even at quotesCount=15 — only a
+// German cross-listing (IXD1.DE), which is also why it silently had no analyst coverage data
+// (Yahoo only attaches analyst estimates to a company's primary listing). Checked before the
+// generic resolver; not an attempt to hand-map all ~150 EU tickers, just the ones a concrete
+// test showed were wrong. Shared by every route that needs a ticker's Yahoo symbol (news
+// headlines, technical indicators, ad-hoc search) so the override list only lives in one place.
 const YAHOO_SYMBOL_OVERRIDES: Record<string, string> = {
   SAN: 'SAN.PA',
+  ITX: 'ITX.MC',
 };
 
 export async function resolveTickerYahooSymbol(meta: TickerMeta): Promise<string | null> {

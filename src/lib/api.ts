@@ -8,6 +8,9 @@ import type {
   NewsHeadline,
   MacroIndicator,
   TechnicalIndicators,
+  SearchResult,
+  AnalyzeResponse,
+  AnalyzeTarget,
 } from '@/types';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8787';
@@ -71,6 +74,10 @@ export interface TechnicalsResponse {
   data: TechnicalIndicators;
 }
 
+export interface SearchResponse {
+  data: SearchResult[];
+}
+
 export const api = {
   insiders: () => getJson<InsidersResponse>('/api/insiders'),
   institutions: () => getJson<InstitutionsResponse>('/api/institutions'),
@@ -82,4 +89,9 @@ export const api = {
   macro: () => getJson<MacroResponse>('/api/macro'),
   technicalsForTicker: (ticker: string) =>
     getJson<TechnicalsResponse>(`/api/technicals/${encodeURIComponent(ticker)}`),
+  search: (query: string) => getJson<SearchResponse>(`/api/search?q=${encodeURIComponent(query)}`),
+  analyze: (result: AnalyzeTarget) =>
+    getJson<AnalyzeResponse>(
+      `/api/search/analyze/${encodeURIComponent(result.symbol)}?name=${encodeURIComponent(result.name)}&market=${result.market}&currency=${result.currency}&sector=${result.sector}`,
+    ),
 };
