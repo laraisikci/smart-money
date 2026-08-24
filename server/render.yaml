@@ -1,0 +1,30 @@
+# Render Blueprint for smart-money-server.
+#
+# This file lives in server/, not the repo root, because this is a monorepo — the frontend's
+# package.json is at the repo root and the server's is in here. When creating the Blueprint in
+# the Render dashboard, point it at this path (server/render.yaml) rather than the repo root, or
+# Render won't find it. `rootDir` below additionally scopes the build itself to this folder —
+# without it, Render would build the root package.json (the Vite frontend) instead of this
+# Express server, the same monorepo gotcha already documented for the Railway setup in
+# server/README.md.
+services:
+  - type: web
+    name: smart-money-server
+    runtime: node
+    plan: free
+    rootDir: server
+    buildCommand: npm install && npm run build
+    startCommand: node dist/index.js
+    healthCheckPath: /health
+    envVars:
+      # SEC EDGAR requires an identifying User-Agent on every request (format:
+      # "AppName contact@email"), or it 403s and can temporarily block the IP.
+      - key: SEC_USER_AGENT
+        sync: false
+      # Set this to the deployed frontend's origin (e.g. https://your-app.vercel.app).
+      - key: CORS_ORIGIN
+        sync: false
+      # Optional — only used by GET /api/news/:ticker and /api/search/analyze/:symbol. Falls
+      # back to the free Yahoo RSS feed if unset. Get a key at https://gnews.io
+      - key: GNEWS_API_KEY
+        sync: false
