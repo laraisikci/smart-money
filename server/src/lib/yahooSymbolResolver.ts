@@ -79,13 +79,33 @@ export async function resolveYahooSymbol(companyName: string): Promise<string | 
 // "sanofi" surfaces a secondary Frankfurt listing (SNW.F) instead of the Paris primary, and
 // "inditex" never surfaces its Madrid primary (ITX.MC) at all even at quotesCount=15 — only a
 // German cross-listing (IXD1.DE), which is also why it silently had no analyst coverage data
-// (Yahoo only attaches analyst estimates to a company's primary listing). Checked before the
-// generic resolver; not an attempt to hand-map all ~150 EU tickers, just the ones a concrete
-// test showed were wrong. Shared by every route that needs a ticker's Yahoo symbol (news
-// headlines, technical indicators, ad-hoc search) so the override list only lives in one place.
+// (Yahoo only attaches analyst estimates to a company's primary listing). "international
+// airlines group" returns zero Yahoo results outright, and the generic resolver's first-word
+// fallback ("international") only matches unrelated US names (IBM, Marriott, AIG, ...) since
+// it's a generic corporate word, not a distinctive one like "lvmh" — this was a *complete*
+// failure to resolve at all, not just a wrong listing, so /api/technicals/IAG 502'd outright and
+// the whole Technical Analysis section silently never rendered. Checked before the generic
+// resolver; not an attempt to hand-map all ~150 EU tickers, just the ones a concrete test showed
+// were wrong. Shared by every route that needs a ticker's Yahoo symbol (news headlines, technical
+// indicators, ad-hoc search) so the override list only lives in one place.
 const YAHOO_SYMBOL_OVERRIDES: Record<string, string> = {
   SAN: 'SAN.PA',
   ITX: 'ITX.MC',
+  IAG: 'IAG.L',
+  // The rest of these were found by auditing every EU ticker's resolution directly rather than
+  // waiting to hit each one individually — same failure class as the three above (short or
+  // generic-word names Yahoo's search doesn't reliably rank), plus two distinct root causes:
+  // normalize() strips "Group" as a corporate suffix, which left "NN Group" as just "nn" (too
+  // short/generic to rank); and normalize() strips non-ASCII characters, which turned "Ørsted"
+  // into "rsted" (missing its first letter).
+  BBVA: 'BBVA.MC',
+  MAP: 'MAP.MC',
+  SAB: 'SAB.MC',
+  ACA: 'ACA.PA',
+  NN: 'NN.AS',
+  AKZA: 'AKZA.AS',
+  COL: 'COL.MC',
+  ORX: 'ORSTED.CO',
 };
 
 export async function resolveTickerYahooSymbol(meta: TickerMeta): Promise<string | null> {
