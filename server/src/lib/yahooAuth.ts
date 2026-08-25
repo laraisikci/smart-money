@@ -8,6 +8,8 @@
 // This is best-effort scaffolding around an undocumented mechanism, not a stable public API — a
 // failure at any step here should degrade to "no analyst data" (see analystClient.ts), never
 // break anything else.
+import { fetchWithTimeout } from './fetchTimeout.js';
+
 const USER_AGENT = 'Mozilla/5.0 (SmartMoneyDashboard)';
 
 // Yahoo's own responses report a 24h maxAge on this data; refreshing a bit before that avoids
@@ -25,12 +27,12 @@ let inFlight: Promise<YahooSession | null> | null = null;
 
 async function fetchSession(): Promise<YahooSession | null> {
   try {
-    const cookieRes = await fetch('https://fc.yahoo.com', { headers: { 'User-Agent': USER_AGENT } });
+    const cookieRes = await fetchWithTimeout('https://fc.yahoo.com', { headers: { 'User-Agent': USER_AGENT } });
     const setCookie = cookieRes.headers.get('set-cookie');
     const cookie = setCookie?.split(';')[0];
     if (!cookie) return null;
 
-    const crumbRes = await fetch('https://query1.finance.yahoo.com/v1/test/getcrumb', {
+    const crumbRes = await fetchWithTimeout('https://query1.finance.yahoo.com/v1/test/getcrumb', {
       headers: { 'User-Agent': USER_AGENT, Cookie: cookie },
     });
     if (!crumbRes.ok) return null;

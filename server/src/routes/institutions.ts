@@ -13,39 +13,65 @@ async function fetchFundPositions(fund: (typeof FUNDS)[number]): Promise<Institu
   return fetchFundPositionsForMatcher(fund, issuerMatcher);
 }
 
+const RESPONSE_CACHE_TTL_MS = 6 * 60 * 60_000; // 6h, per spec — 13F filings only update quarterly anyway
+
+interface ResponseCacheValue {
+  data: InstitutionalPosition[];
+  generatedAt: string;
+  failedFunds: string[];
+}
 interface ResponseCacheEntry {
   expires: number;
-  value: { data: InstitutionalPosition[]; generatedAt: string; failedFunds: string[] };
+  value: ResponseCacheValue;
 }
 let responseCache: ResponseCacheEntry | null = null;
+
+export async function computeInstitutions(): Promise<ResponseCacheValue> {
+  const settled = await Promise.allSettled(FUNDS.map((fund) => fetchFundPositions(fund)));
+
+  const failedFunds: string[] = [];
+  const perFund: InstitutionalPosition[][] = [];
+  settled.forEach((result, i) => {
+    if (result.status === 'fulfilled') {
+      perFund.push(result.value);
+    } else {
+      failedFunds.push(FUNDS[i].name);
+    }
+  });
+
+  const data = perFund
+    .flat()
+    .sort((a, b) => new Date(b.filingDate).getTime() - new Date(a.filingDate).getTime());
+
+  return { data, generatedAt: new Date().toISOString(), failedFunds };
+}
+
+// Same request-coalescing as /api/insiders and /api/news — a second request arriving mid-
+// computation awaits the same in-flight promise instead of independently kicking off a second
+// 10-fund scan.
+let inFlight: Promise<ResponseCacheValue> | null = null;
+
+// Shared by the route handler and the startup pre-warm task (see lib/prewarm.ts).
+export async function getCachedInstitutions(): Promise<ResponseCacheValue> {
+  if (responseCache && responseCache.expires > Date.now()) {
+    return responseCache.value;
+  }
+  if (!inFlight) {
+    inFlight = computeInstitutions().finally(() => {
+      inFlight = null;
+    });
+  }
+  const value = await inFlight;
+  responseCache = { expires: Date.now() + RESPONSE_CACHE_TTL_MS, value };
+  return value;
+}
 
 export function institutionsRouter(): Router {
   const router = Router();
 
   router.get('/', async (_req, res) => {
     try {
-      if (responseCache && responseCache.expires > Date.now()) {
-        return res.json(responseCache.value);
-      }
-
-      const failedFunds: string[] = [];
-      const perFund = await Promise.all(
-        FUNDS.map(async (fund) => {
-          try {
-            return await fetchFundPositions(fund);
-          } catch {
-            failedFunds.push(fund.name);
-            return [] as InstitutionalPosition[];
-          }
-        }),
-      );
-
-      const data = perFund
-        .flat()
-        .sort((a, b) => new Date(b.filingDate).getTime() - new Date(a.filingDate).getTime());
-
-      const value = { data, generatedAt: new Date().toISOString(), failedFunds };
-      responseCache = { expires: Date.now() + 30 * 60_000, value };
+      const value = await getCachedInstitutions();
       res.json(value);
     } catch (err) {
       res.status(502).json({ error: 'Failed to fetch SEC EDGAR 13F data', detail: String(err) });

@@ -23,7 +23,7 @@ function throttle(): Promise<void> {
   return run;
 }
 
-const REQUEST_TIMEOUT_MS = 15_000;
+const REQUEST_TIMEOUT_MS = 4_000;
 const MAX_ATTEMPTS = 3;
 const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504]);
 

@@ -10,6 +10,7 @@ import { newsRouter } from './routes/news.js';
 import { macroRouter } from './routes/macro.js';
 import { technicalsRouter } from './routes/technicals.js';
 import { searchRouter } from './routes/search.js';
+import { prewarmCaches } from './lib/prewarm.js';
 
 const PORT = Number(process.env.PORT ?? 8787);
 const CORS_ORIGIN = process.env.CORS_ORIGIN ?? 'http://localhost:5173';
@@ -35,4 +36,7 @@ app.use('/api/search', searchRouter());
 // check, and Railway kills the container a few seconds later as a result.
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`smart-money-server listening on 0.0.0.0:${PORT} (CORS origin: ${CORS_ORIGIN})`);
+  // Fire-and-forget, started only after the server is already accepting connections — see
+  // lib/prewarm.ts for why this must never block app.listen() itself.
+  prewarmCaches();
 });

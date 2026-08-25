@@ -159,19 +159,20 @@ export function PulseTab() {
   }, [news.data]);
   const allHeadlines = useMemo(() => Array.from(newsByTicker.values()).flat(), [newsByTicker]);
 
-  const convictionReady = !!(insiders.data && institutions.data && polymarket.data && news.data);
   const convictionLoading = insiders.loading || institutions.loading || polymarket.loading || news.loading;
   const convictionError = insiders.error || institutions.error || polymarket.error || news.error;
 
+  // Not gated on every source having landed — see the same change in ConvictionTab.tsx. Picks
+  // computed from whatever's in so far, so this section can show up before the slowest source
+  // (often Polymarket) finishes.
   const allResults = useMemo(() => {
-    if (!convictionReady) return [];
     return computeConviction({
-      insiders: insiders.data!.data,
-      institutions: institutions.data!.data,
-      polymarket: polymarket.data!.data,
+      insiders: insiders.data?.data ?? [],
+      institutions: institutions.data?.data ?? [],
+      polymarket: polymarket.data?.data ?? [],
       news: allHeadlines,
     });
-  }, [convictionReady, insiders.data, institutions.data, polymarket.data, allHeadlines]);
+  }, [insiders.data, institutions.data, polymarket.data, allHeadlines]);
 
   const sectorPulses = useMemo(
     () => (macro.data ? computeSectorPulse(macro.data.data) : []),
@@ -187,11 +188,8 @@ export function PulseTab() {
   }, [sectorPulses]);
 
   const alignedPicks = useMemo(
-    () =>
-      convictionReady && macro.data
-        ? allResults.filter((r) => tailwindSectors.has(r.sector)).slice(0, 5)
-        : [],
-    [convictionReady, macro.data, allResults, tailwindSectors],
+    () => (macro.data ? allResults.filter((r) => tailwindSectors.has(r.sector)).slice(0, 5) : []),
+    [macro.data, allResults, tailwindSectors],
   );
 
   return (
@@ -254,7 +252,7 @@ export function PulseTab() {
           Tracked stocks in sectors currently reading as a macro tailwind, ranked by conviction
           score. Not financial advice.
         </p>
-        {(convictionLoading || macro.loading) && <LoadingCards count={3} />}
+        {(convictionLoading || macro.loading) && alignedPicks.length === 0 && <LoadingCards count={3} />}
         {convictionError && (
           <ErrorCard
             message={convictionError}
@@ -266,7 +264,7 @@ export function PulseTab() {
             }}
           />
         )}
-        {convictionReady && macro.data && (
+        {macro.data && (
           <div className="space-y-3">
             {alignedPicks.map((r) => (
               <PickCard
@@ -277,7 +275,7 @@ export function PulseTab() {
                 onClick={() => setSelected(r)}
               />
             ))}
-            {alignedPicks.length === 0 && (
+            {alignedPicks.length === 0 && !convictionLoading && (
               <div className="py-8 text-center text-sm text-ink-400">
                 No tracked stocks align with a current sector tailwind.
               </div>

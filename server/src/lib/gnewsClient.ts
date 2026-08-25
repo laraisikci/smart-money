@@ -46,7 +46,7 @@ export async function fetchGNewsHeadlines(ticker: string, query: string): Promis
     quotaUsed++;
     const url = `https://gnews.io/api/v4/search?q=${encodeURIComponent(query)}&lang=en&max=${HEADLINES_PER_REQUEST}&apikey=${apiKey}`;
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10_000);
+    const timeout = setTimeout(() => controller.abort(), 4_000);
     let res: Response;
     try {
       res = await fetch(url, { signal: controller.signal });

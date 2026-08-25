@@ -9,7 +9,7 @@
 // rather than letting two independently-throttled call sites collectively hammer Yahoo faster
 // than either intends.
 const MIN_INTERVAL_MS = 200;
-const REQUEST_TIMEOUT_MS = 10_000;
+const REQUEST_TIMEOUT_MS = 4_000;
 const MAX_ATTEMPTS = 3;
 
 let lastRequestAt = 0;

@@ -30,7 +30,10 @@ export function ConvictionTab() {
 
   const loading = insiders.loading || institutions.loading || polymarket.loading || news.loading;
   const error = insiders.error || institutions.error || polymarket.error || news.error;
-  const ready = insiders.data && institutions.data && polymarket.data && news.data;
+  // "All 4 sources have finished trying" (succeeded or failed) — not "all 4 succeeded". Used only
+  // to decide when it's safe to show a terminal "nothing here" message; individual sections
+  // render progressively from whatever has actually landed, they don't wait on this.
+  const settled = !loading;
 
   // Search & watchlist: results reached this way live outside the pre-tracked TICKERS universe,
   // so they get their own fetch (/api/search/analyze) rather than the bulk endpoints above. Kept
@@ -101,15 +104,18 @@ export function ConvictionTab() {
   );
   const adhocNews = useMemo(() => Array.from(adhocAnalyses.values()).flatMap((a) => a.news), [adhocAnalyses]);
 
+  // Deliberately not gated on `ready` (all 4 sources loaded) — computeConviction already treats
+  // every signal as optional, so a ticker with just 1 of 4 signals in produces a valid result.
+  // Recomputing from whatever has landed so far means results appear as each source arrives
+  // instead of the whole tab waiting on the single slowest one.
   const allResults = useMemo(() => {
-    if (!ready) return [];
     return computeConviction({
-      insiders: [...insiders.data!.data, ...adhocInsiders],
-      institutions: [...institutions.data!.data, ...adhocInstitutions],
-      polymarket: polymarket.data!.data,
+      insiders: [...(insiders.data?.data ?? []), ...adhocInsiders],
+      institutions: [...(institutions.data?.data ?? []), ...adhocInstitutions],
+      polymarket: polymarket.data?.data ?? [],
       news: [...allHeadlines, ...adhocNews],
     });
-  }, [ready, insiders.data, institutions.data, polymarket.data, allHeadlines, adhocInsiders, adhocInstitutions, adhocNews]);
+  }, [insiders.data, institutions.data, polymarket.data, allHeadlines, adhocInsiders, adhocInstitutions, adhocNews]);
 
   const results = useMemo(
     () => (marketFilter === 'ALL' ? allResults : allResults.filter((r) => r.market === marketFilter)),
@@ -220,7 +226,9 @@ export function ConvictionTab() {
         ))}
       </div>
 
-      {loading && <LoadingCards />}
+      {/* Only shown before anything has landed at all — once the first results render below,
+          they update in place as more sources arrive rather than being replaced by this again. */}
+      {loading && allResults.length === 0 && <LoadingCards />}
       {error && (
         <ErrorCard
           message={error}
@@ -257,7 +265,7 @@ export function ConvictionTab() {
       )}
 
       {/* European Movers — EU-tagged tickers only, ranked separately from the global list */}
-      {ready && europeanMovers.length > 0 && (
+      {europeanMovers.length > 0 && (
         <div>
           <div className="mb-3 flex items-center gap-1.5">
             <Globe2 className="h-3.5 w-3.5 text-teal-400" />
@@ -320,7 +328,7 @@ export function ConvictionTab() {
         </div>
       </div>
 
-      {ready && results.length === 0 && (
+      {settled && results.length === 0 && (
         <div className="py-12 text-center text-sm text-ink-400">
           No conviction signals detected yet.
         </div>

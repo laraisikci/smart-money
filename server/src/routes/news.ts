@@ -6,7 +6,7 @@ import { fetchGNewsHeadlines } from '../lib/gnewsClient.js';
 import { fetchNewsForYahooSymbol } from '../lib/newsFetch.js';
 import type { NewsHeadline, TickerNews } from '../types.js';
 
-const RESPONSE_CACHE_TTL_MS = 2 * 60 * 60_000; // 2h, per spec
+const RESPONSE_CACHE_TTL_MS = 60 * 60_000; // 1h, per spec
 const TICKER_BATCH_SIZE = 20;
 
 function chunk<T>(items: T[], size: number): T[][] {
@@ -59,25 +59,31 @@ let inFlight: Promise<ResponseCacheEntry['value']> | null = null;
 // Single-ticker fetches (below) are naturally bounded by actual user interaction — someone
 // opening one ticker's detail view — rather than a bulk scan, so this is the only place GNews
 // gets tried (its free tier is 100 requests/day, nowhere near enough for the full universe).
-// Cached the same 2h as the bulk endpoint regardless of which source answered.
+// Cached the same 1h as the bulk endpoint regardless of which source answered.
 const singleTickerCache = new Map<string, { expires: number; value: NewsHeadline[] }>();
-const SINGLE_TICKER_CACHE_TTL_MS = 2 * 60 * 60_000;
+const SINGLE_TICKER_CACHE_TTL_MS = 60 * 60_000;
+
+// Shared by the route handler and the startup pre-warm task (see lib/prewarm.ts).
+export async function getCachedNews(): Promise<ResponseCacheEntry['value']> {
+  if (responseCache && responseCache.expires > Date.now()) {
+    return responseCache.value;
+  }
+  if (!inFlight) {
+    inFlight = computeNews().finally(() => {
+      inFlight = null;
+    });
+  }
+  const value = await inFlight;
+  responseCache = { expires: Date.now() + RESPONSE_CACHE_TTL_MS, value };
+  return value;
+}
 
 export function newsRouter(): Router {
   const router = Router();
 
   router.get('/', async (_req, res) => {
     try {
-      if (responseCache && responseCache.expires > Date.now()) {
-        return res.json(responseCache.value);
-      }
-      if (!inFlight) {
-        inFlight = computeNews().finally(() => {
-          inFlight = null;
-        });
-      }
-      const value = await inFlight;
-      responseCache = { expires: Date.now() + RESPONSE_CACHE_TTL_MS, value };
+      const value = await getCachedNews();
       res.json(value);
     } catch (err) {
       res.status(502).json({ error: 'Failed to fetch news', detail: String(err) });

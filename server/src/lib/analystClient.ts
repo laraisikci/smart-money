@@ -1,4 +1,5 @@
 import { getYahooSession } from './yahooAuth.js';
+import { fetchWithTimeout } from './fetchTimeout.js';
 
 export interface AnalystRating {
   recommendationMean: number; // Yahoo's own scale: 1 = Strong Buy ... 5 = Strong Sell
@@ -21,7 +22,7 @@ const USER_AGENT = 'Mozilla/5.0 (SmartMoneyDashboard)';
 
 async function fetchOnce(yahooSymbol: string, cookie: string, crumb: string): Promise<Response> {
   const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(yahooSymbol)}?modules=financialData&crumb=${encodeURIComponent(crumb)}`;
-  return fetch(url, { headers: { 'User-Agent': USER_AGENT, Cookie: cookie } });
+  return fetchWithTimeout(url, { headers: { 'User-Agent': USER_AGENT, Cookie: cookie } });
 }
 
 /**

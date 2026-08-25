@@ -3,7 +3,7 @@ import { cachedFetchJson } from '../lib/cache.js';
 import { fetchYahooJson } from '../lib/newsClient.js';
 import type { MacroIndicator, MacroIndicatorId } from '../types.js';
 
-const CACHE_TTL_MS = 60 * 60_000; // 1h, per spec
+const CACHE_TTL_MS = 30 * 60_000; // 30min, per spec
 
 function round(n: number, decimals = 2): number {
   const f = 10 ** decimals;
@@ -273,21 +273,27 @@ async function computeMacro(): Promise<ResponseCacheEntry['value']> {
   return { data, generatedAt: new Date().toISOString(), unavailable };
 }
 
+// Shared by the route handler and the startup pre-warm task (see lib/prewarm.ts).
+export async function getCachedMacro(): Promise<ResponseCacheEntry['value']> {
+  if (responseCache && responseCache.expires > Date.now()) {
+    return responseCache.value;
+  }
+  if (!inFlight) {
+    inFlight = computeMacro().finally(() => {
+      inFlight = null;
+    });
+  }
+  const value = await inFlight;
+  responseCache = { expires: Date.now() + CACHE_TTL_MS, value };
+  return value;
+}
+
 export function macroRouter(): Router {
   const router = Router();
 
   router.get('/', async (_req, res) => {
     try {
-      if (responseCache && responseCache.expires > Date.now()) {
-        return res.json(responseCache.value);
-      }
-      if (!inFlight) {
-        inFlight = computeMacro().finally(() => {
-          inFlight = null;
-        });
-      }
-      const value = await inFlight;
-      responseCache = { expires: Date.now() + CACHE_TTL_MS, value };
+      const value = await getCachedMacro();
       res.json(value);
     } catch (err) {
       res.status(502).json({ error: 'Failed to fetch macro data', detail: String(err) });

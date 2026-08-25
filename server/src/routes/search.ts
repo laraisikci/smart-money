@@ -171,12 +171,22 @@ async function computeAnalysis(
   currency: Currency,
   sector: Sector,
 ): Promise<AnalyzeResponse> {
-  const [technicals, news, insidersResult, institutions] = await Promise.all([
-    getTechnicals(yahooSymbol, yahooSymbol).catch(() => null),
-    fetchNewsForYahooSymbol(yahooSymbol, yahooSymbol).catch(() => [] as NewsHeadline[]),
+  // allSettled, not all — these hit four independent external sources (Yahoo chart+analyst, Yahoo
+  // RSS, SEC EDGAR Form 4, SEC EDGAR 13F x10 funds), and a slow or failing one (each already
+  // guarded by its own 4s timeout, see fetchTimeout.ts) must never take the other three down with
+  // it or block the response waiting on a source that's never coming back.
+  const [technicalsResult, newsResult, insidersResult, institutionsResult] = await Promise.allSettled([
+    getTechnicals(yahooSymbol, yahooSymbol),
+    fetchNewsForYahooSymbol(yahooSymbol, yahooSymbol),
     fetchAdhocInsiders(yahooSymbol, market, name),
     fetchAdhocInstitutions(yahooSymbol, name),
   ]);
+
+  const technicals = technicalsResult.status === 'fulfilled' ? technicalsResult.value : null;
+  const news = newsResult.status === 'fulfilled' ? newsResult.value : [];
+  const insiders =
+    insidersResult.status === 'fulfilled' ? insidersResult.value : { trades: [], filerFound: false };
+  const institutions = institutionsResult.status === 'fulfilled' ? institutionsResult.value : [];
 
   return {
     ticker: yahooSymbol,
@@ -184,11 +194,11 @@ async function computeAnalysis(
     market,
     currency,
     sector,
-    insiders: insidersResult.trades,
+    insiders: insiders.trades,
     institutions,
     news,
     technicals,
-    insidersFilerFound: insidersResult.filerFound,
+    insidersFilerFound: insiders.filerFound,
     generatedAt: new Date().toISOString(),
   };
 }
