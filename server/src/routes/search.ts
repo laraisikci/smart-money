@@ -30,6 +30,11 @@ const EU_EXCHANGE_CURRENCY: Record<string, Currency> = {
   VTX: 'CHF',
   EBS: 'CHF',
   CPH: 'DKK',
+  STO: 'SEK', // Stockholm — verified directly: Volvo's only clean listings are STO + US OTC
+  // (Pink Sheets, deliberately excluded below), so without this a Swedish search could return
+  // nothing at all even though this app's own Currency type already has SEK for exactly this.
+  OSL: 'NOK', // Oslo — same reasoning; Equinor happens to have a NYQ ADR so was findable either
+  // way, but its Oslo primary wasn't, and not every Norwegian company has a US ADR to fall back on.
 };
 const US_EXCHANGES = new Set(['NMS', 'NYQ', 'NGM', 'NCM', 'BATS', 'PCX', 'ASE']);
 
@@ -210,15 +215,22 @@ export function searchRouter(): Router {
     const q = String(req.query.q ?? '').trim();
     if (q.length < 2) return res.json({ data: [] });
 
+    // searchTracked is a local, synchronous array scan — it cannot fail. searchYahoo hits an
+    // external API on a 4s timeout and can. Previously a single slow/failed Yahoo call (a bad
+    // moment, a transient timeout) sank the *entire* response with a 502 — including the tracked-
+    // universe match that had already succeeded — which is exactly what "search sometimes can't
+    // find stocks that are right there in the tracked list" looks like from the outside. Yahoo
+    // failing now degrades to "just the tracked match" instead of "nothing at all".
+    const tracked = searchTracked(q, 5);
+    const trackedSymbols = new Set(tracked.map((r) => r.symbol));
+    let yahoo: SearchResult[] = [];
     try {
-      const tracked = searchTracked(q, 5);
-      const trackedSymbols = new Set(tracked.map((r) => r.symbol));
-      const yahoo = await searchYahoo(q, 10);
-      const merged = [...tracked, ...yahoo.filter((r) => !trackedSymbols.has(r.symbol))].slice(0, 8);
-      res.json({ data: merged });
-    } catch (err) {
-      res.status(502).json({ error: 'Search failed', detail: String(err) });
+      yahoo = await searchYahoo(q, 10);
+    } catch {
+      // swallow — tracked-universe results still go out below
     }
+    const merged = [...tracked, ...yahoo.filter((r) => !trackedSymbols.has(r.symbol))].slice(0, 8);
+    res.json({ data: merged });
   });
 
   router.get('/analyze/:symbol', async (req, res) => {
