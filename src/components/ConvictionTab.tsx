@@ -130,13 +130,30 @@ export function ConvictionTab() {
   async function handleSearchSelect(result: SearchResult) {
     setSearchError(null);
     if (result.tracked) {
+      // Tracked tickers always open through the normal drawer path — never the ad-hoc analyze
+      // endpoint below. That endpoint treats its :symbol param as an already-Yahoo-native symbol
+      // (correct for genuine search results, which come straight from Yahoo's own search), but a
+      // tracked ticker's *internal* symbol (e.g. "INFX") usually isn't its real Yahoo symbol (the
+      // real one is "IFX.DE") — that's the entire reason resolveTickerYahooSymbol/the override
+      // map exist server-side. Sending "INFX" to Yahoo as if it were valid hung for 20s+ with no
+      // data, verified directly. The normal drawer path already resolves this correctly via
+      // /api/technicals/:ticker and /api/news/:ticker, so a tracked ticker with no active
+      // conviction signal just gets a zero-score placeholder result and opens exactly like any
+      // other tracked ticker — no ad-hoc fetch needed at all.
       const existing = allResults.find((r) => r.ticker === result.symbol);
-      if (existing) {
-        setSelected(existing);
-        return;
-      }
-      // Bulk-tracked but no active signal yet (or bulk data still loading) — fall through to the
-      // ad-hoc path below so the user sees something rather than nothing.
+      setSelected(
+        existing ?? {
+          ticker: result.symbol,
+          name: result.name,
+          sector: result.sector,
+          market: result.market,
+          currency: result.currency,
+          totalScore: 0,
+          signals: [],
+          signalsActive: [],
+        },
+      );
+      return;
     }
     setSearchLoading(true);
     const analysis = await analyzeAndCache(result);
