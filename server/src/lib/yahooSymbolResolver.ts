@@ -108,6 +108,14 @@ const YAHOO_SYMBOL_OVERRIDES: Record<string, string> = {
   ORX: 'ORSTED.CO',
 };
 
+// Logged once at module load so a deploy that isn't actually running this file's current
+// contents is visible in the platform's logs rather than silently guessed at — verified directly
+// that a subset of these overrides (BBVA/SAB/ACA/NN/AKZA/ORX/IAG) 502'd in production with
+// "Could not resolve a Yahoo symbol" while the other 4 (SAN/ITX/MAP/COL) worked, on code that is
+// unambiguously correct both in git and when run locally — a plain object literal lookup cannot
+// itself produce that split, which points at a stale build/deploy rather than a logic bug.
+console.log(`[yahooSymbolResolver] ${Object.keys(YAHOO_SYMBOL_OVERRIDES).length} overrides loaded: ${Object.keys(YAHOO_SYMBOL_OVERRIDES).join(', ')}`);
+
 export async function resolveTickerYahooSymbol(meta: TickerMeta): Promise<string | null> {
   // US tickers are all real major NYSE/Nasdaq large-caps — unambiguously their own bare Yahoo
   // symbol, no resolution needed. EU tickers need disambiguation (see comment above
