@@ -10,8 +10,6 @@ import {
   LineChart,
   ChevronDown,
   ChevronUp,
-  Bookmark,
-  BookmarkCheck,
 } from 'lucide-react';
 import type {
   ConvictionResult,
@@ -25,6 +23,7 @@ import { getEarningsDate, daysUntilEarnings } from '@/data/earnings';
 import { getShortInterest, shortInterestLevel } from '@/data/shortInterest';
 import { getTickerMeta } from '@/data/tickers';
 import { SignalIcons, ActionBadge, MarketTag, FundAvatar } from '@/components/ui';
+import { WatchlistStarButton } from '@/components/WatchlistStar';
 import { FUND_MAP } from '@/data/funds';
 import { formatCurrency, formatShares, formatDate, timeAgo } from '@/lib/format';
 import { SENTIMENT_DIRECTION } from '@/lib/newsSentiment';
@@ -82,8 +81,6 @@ interface TickerDetailDrawerProps {
   // for every other caller, which keeps the existing on-demand fetch behavior unchanged.
   technicalsOverride?: TechnicalIndicators | null;
   skipNewsFetch?: boolean;
-  watchlisted?: boolean;
-  onToggleWatchlist?: () => void;
 }
 
 export function TickerDetailDrawer({
@@ -95,8 +92,6 @@ export function TickerDetailDrawer({
   news: bulkNews,
   technicalsOverride,
   skipNewsFetch,
-  watchlisted,
-  onToggleWatchlist,
 }: TickerDetailDrawerProps) {
   useEffect(() => {
     if (result) {
@@ -206,23 +201,15 @@ export function TickerDetailDrawer({
           <div className="lg:col-span-2">
             <div className="flex items-start justify-between gap-3">
               <h3 className="text-base font-semibold text-ink-50">{result.name}</h3>
-              {onToggleWatchlist && (
-                <button
-                  onClick={onToggleWatchlist}
-                  className={`flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-2xs font-medium transition-colors ${
-                    watchlisted
-                      ? 'border-teal-500/40 bg-teal-400/15 text-teal-300'
-                      : 'border-ink-700 bg-ink-800/60 text-ink-300 hover:border-ink-600 hover:text-ink-100'
-                  }`}
-                >
-                  {watchlisted ? (
-                    <BookmarkCheck className="h-3.5 w-3.5" />
-                  ) : (
-                    <Bookmark className="h-3.5 w-3.5" />
-                  )}
-                  {watchlisted ? 'Watchlisted' : 'Save to Watchlist'}
-                </button>
-              )}
+              <WatchlistStarButton
+                variant="pill"
+                target={{ symbol: result.ticker, name: result.name, market: result.market, currency: result.currency, sector: result.sector }}
+                convictionScore={result.totalScore}
+                institutions={institutions}
+                news={news}
+                technicals={effectiveTechnicals}
+                disabled={technicalsLoading}
+              />
             </div>
             <div className="mt-1 flex items-center gap-2">
               <span className="rounded-full bg-ink-700/50 px-2 py-0.5 text-2xs font-medium text-ink-300">

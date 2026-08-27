@@ -1,4 +1,4 @@
-import type { WatchlistEntry, AnalyzeTarget } from '@/types';
+import type { WatchlistEntry, AnalyzeTarget, WatchlistSnapshot } from '@/types';
 
 // This app has no database or backend persistence — everything server-side is stateless
 // fetch+cache. localStorage is the honest choice for "permanently save this stock": it survives
@@ -33,7 +33,7 @@ export function isWatchlisted(symbol: string): boolean {
   return readRaw().some((e) => e.symbol === symbol);
 }
 
-export function addToWatchlist(result: AnalyzeTarget): WatchlistEntry[] {
+export function addToWatchlist(result: AnalyzeTarget, snapshot: WatchlistSnapshot): WatchlistEntry[] {
   const entries = readRaw();
   if (entries.some((e) => e.symbol === result.symbol)) return entries;
   const next = [
@@ -45,6 +45,7 @@ export function addToWatchlist(result: AnalyzeTarget): WatchlistEntry[] {
       currency: result.currency,
       sector: result.sector,
       addedAt: new Date().toISOString(),
+      snapshot,
     },
   ];
   writeRaw(next);

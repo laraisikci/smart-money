@@ -1,13 +1,14 @@
 import { useState } from 'react';
-import { Activity, UserCircle2, Building2, HeartPulse, BarChart3 } from 'lucide-react';
+import { Activity, UserCircle2, Building2, HeartPulse, BarChart3, Star } from 'lucide-react';
 import { ConvictionTab } from '@/components/ConvictionTab';
 import { InsidersTab } from '@/components/InsidersTab';
 import { InstitutionsTab } from '@/components/InstitutionsTab';
 import { PulseTab } from '@/components/PulseTab';
 import { PolymarketTab } from '@/components/PolymarketTab';
+import { WatchlistTab } from '@/components/WatchlistTab';
 import { DataStatus } from '@/components/DataStatus';
 
-type TabId = 'conviction' | 'insiders' | 'institutions' | 'pulse' | 'polymarket';
+type TabId = 'conviction' | 'insiders' | 'institutions' | 'pulse' | 'polymarket' | 'watchlist';
 
 const TABS: { id: TabId; label: string; icon: typeof Activity }[] = [
   { id: 'conviction', label: 'Conviction', icon: Activity },
@@ -15,6 +16,7 @@ const TABS: { id: TabId; label: string; icon: typeof Activity }[] = [
   { id: 'institutions', label: 'Institutions', icon: Building2 },
   { id: 'pulse', label: 'Pulse', icon: HeartPulse },
   { id: 'polymarket', label: 'Markets', icon: BarChart3 },
+  { id: 'watchlist', label: 'Watchlist', icon: Star },
 ];
 
 function App() {
@@ -82,6 +84,7 @@ function App() {
           {activeTab === 'institutions' && <InstitutionsTab />}
           {activeTab === 'pulse' && <PulseTab />}
           {activeTab === 'polymarket' && <PolymarketTab />}
+          {activeTab === 'watchlist' && <WatchlistTab />}
         </main>
 
         {/* Bottom navigation — mobile/tablet only, the sidebar above takes over at lg: */}

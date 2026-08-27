@@ -208,6 +208,24 @@ export interface AnalyzeResponse {
   generatedAt: string;
 }
 
+export type InstitutionalStance = 'increasing' | 'decreasing' | 'neutral';
+export type SnapshotSentiment = 'positive' | 'neutral' | 'negative';
+export type SmaPosition = 'above' | 'below';
+
+// Signal readout captured at watchlist add-time (and recomputed live on every Watchlist tab
+// load) — the pair of these is what the Signal Decay tracker diffs against to decide whether the
+// original thesis still holds. Every field is nullable/neutral-able because not every ticker has
+// full technical history (e.g. a newly-tracked stock without 200 days of prices yet).
+export interface WatchlistSnapshot {
+  convictionScore: number;
+  rsi: number | null;
+  stochK: number | null;
+  vsSma50: SmaPosition | null;
+  vsSma200: SmaPosition | null;
+  institutionalStance: InstitutionalStance;
+  newsSentiment: SnapshotSentiment;
+}
+
 export interface WatchlistEntry {
   symbol: string;
   name: string;
@@ -215,4 +233,5 @@ export interface WatchlistEntry {
   currency: Currency;
   sector: Sector;
   addedAt: string;
+  snapshot: WatchlistSnapshot;
 }

@@ -3,9 +3,11 @@ import { Building2, TrendingUp, ArrowUpRight, ArrowUp, ArrowDown, ChevronsUpDown
 import { FUNDS, FUND_MAP } from '@/data/funds';
 import { api } from '@/lib/api';
 import { useApi } from '@/lib/useApi';
-import type { InstitutionalPosition } from '@/types';
+import type { InstitutionalPosition, NewsHeadline } from '@/types';
+import { computeConviction } from '@/lib/conviction';
 import { formatCurrency, formatShares, formatPct, timeAgo } from '@/lib/format';
 import { ActionBadge, FundAvatar, MarketTag, LoadingCards, ErrorCard } from '@/components/ui';
+import { WatchlistStarButton } from '@/components/WatchlistStar';
 import { getTickerMeta } from '@/data/tickers';
 
 type FilterMode = 'all' | 'bullish';
@@ -51,6 +53,27 @@ export function InstitutionsTab() {
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const { data, loading, error, refetch } = useApi(api.institutions, 'institutions');
   const positions = useMemo(() => data?.data ?? [], [data]);
+  const insidersData = useApi(api.insiders);
+  const polymarketData = useApi(api.markets);
+  const newsData = useApi(api.news);
+
+  const newsByTicker = useMemo(() => {
+    const map = new Map<string, NewsHeadline[]>();
+    for (const t of newsData.data?.data ?? []) map.set(t.ticker, t.headlines);
+    return map;
+  }, [newsData.data]);
+
+  // Watchlist star buttons on this tab's cards need a conviction score too, so the snapshot
+  // saved at add-time matches what the Conviction tab would show for the same stock.
+  const convictionByTicker = useMemo(() => {
+    const results = computeConviction({
+      insiders: insidersData.data?.data ?? [],
+      institutions: positions,
+      polymarket: polymarketData.data?.data ?? [],
+      news: Array.from(newsByTicker.values()).flat(),
+    });
+    return new Map(results.map((r) => [r.ticker, r.totalScore]));
+  }, [insidersData.data, positions, polymarketData.data, newsByTicker]);
 
   function handleSort(key: SortKey) {
     if (key === sortKey) {
@@ -216,7 +239,13 @@ export function InstitutionsTab() {
       {/* Position cards — mobile/tablet */}
       <div className="space-y-3 lg:hidden">
         {filtered.map((pos) => (
-          <PositionCard key={pos.id} pos={pos} />
+          <PositionCard
+            key={pos.id}
+            pos={pos}
+            institutions={positions.filter((p) => p.ticker === pos.ticker)}
+            convictionScore={convictionByTicker.get(pos.ticker) ?? 0}
+            news={newsByTicker.get(pos.ticker) ?? []}
+          />
         ))}
       </div>
 
@@ -231,11 +260,18 @@ export function InstitutionsTab() {
                 <SortHeader label="Action" sortKey="action" activeKey={sortKey} direction={sortDirection} onSort={handleSort} />
                 <SortHeader label="Value" sortKey="value" activeKey={sortKey} direction={sortDirection} onSort={handleSort} align="right" />
                 <SortHeader label="Date" sortKey="date" activeKey={sortKey} direction={sortDirection} onSort={handleSort} align="right" />
+                <th className="px-3 py-2.5" />
               </tr>
             </thead>
             <tbody>
               {sortedForTable.map((pos) => (
-                <InstitutionTableRow key={pos.id} pos={pos} />
+                <InstitutionTableRow
+                  key={pos.id}
+                  pos={pos}
+                  institutions={positions.filter((p) => p.ticker === pos.ticker)}
+                  convictionScore={convictionByTicker.get(pos.ticker) ?? 0}
+                  news={newsByTicker.get(pos.ticker) ?? []}
+                />
               ))}
             </tbody>
           </table>
@@ -253,7 +289,17 @@ export function InstitutionsTab() {
   );
 }
 
-function PositionCard({ pos }: { pos: InstitutionalPosition }) {
+function PositionCard({
+  pos,
+  institutions,
+  convictionScore,
+  news,
+}: {
+  pos: InstitutionalPosition;
+  institutions: InstitutionalPosition[];
+  convictionScore: number;
+  news: NewsHeadline[];
+}) {
   const fund = FUND_MAP[pos.fundSlug];
   const meta = getTickerMeta(pos.ticker);
   const isBullish = pos.action === 'new' || pos.action === 'increased';
@@ -273,11 +319,19 @@ function PositionCard({ pos }: { pos: InstitutionalPosition }) {
             <p className="text-2xs text-ink-500">{pos.fundName}</p>
           </div>
         </div>
-        <div className="text-right">
-          <div className="font-mono text-sm font-bold text-ink-50">
-            {formatCurrency(pos.marketValue)}
+        <div className="flex flex-col items-end gap-1">
+          <WatchlistStarButton
+            target={{ symbol: pos.ticker, name: meta.name, market: meta.market, currency: meta.currency, sector: meta.sector }}
+            convictionScore={convictionScore}
+            institutions={institutions}
+            news={news}
+          />
+          <div className="text-right">
+            <div className="font-mono text-sm font-bold text-ink-50">
+              {formatCurrency(pos.marketValue)}
+            </div>
+            <p className="text-2xs text-ink-500">{timeAgo(pos.filingDate)}</p>
           </div>
-          <p className="text-2xs text-ink-500">{timeAgo(pos.filingDate)}</p>
         </div>
       </div>
 
@@ -311,7 +365,17 @@ function PositionCard({ pos }: { pos: InstitutionalPosition }) {
   );
 }
 
-function InstitutionTableRow({ pos }: { pos: InstitutionalPosition }) {
+function InstitutionTableRow({
+  pos,
+  institutions,
+  convictionScore,
+  news,
+}: {
+  pos: InstitutionalPosition;
+  institutions: InstitutionalPosition[];
+  convictionScore: number;
+  news: NewsHeadline[];
+}) {
   const fund = FUND_MAP[pos.fundSlug];
   const meta = getTickerMeta(pos.ticker);
   const isBullish = pos.action === 'new' || pos.action === 'increased';
@@ -341,6 +405,14 @@ function InstitutionTableRow({ pos }: { pos: InstitutionalPosition }) {
         </p>
       </td>
       <td className="px-3 py-3 text-right text-2xs text-ink-500">{timeAgo(pos.filingDate)}</td>
+      <td className="px-3 py-3 text-right">
+        <WatchlistStarButton
+          target={{ symbol: pos.ticker, name: meta.name, market: meta.market, currency: meta.currency, sector: meta.sector }}
+          convictionScore={convictionScore}
+          institutions={institutions}
+          news={news}
+        />
+      </td>
     </tr>
   );
 }

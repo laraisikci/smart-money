@@ -1,11 +1,13 @@
 import { useMemo, useState } from 'react';
 import { Filter, UserCircle2, ExternalLink, Calendar, ArrowUp, ArrowDown, ChevronsUpDown } from 'lucide-react';
-import type { NewsHeadline, InsiderTrade } from '@/types';
+import type { NewsHeadline, InsiderTrade, InstitutionalPosition } from '@/types';
 import { api } from '@/lib/api';
 import { useApi } from '@/lib/useApi';
+import { computeConviction } from '@/lib/conviction';
 import { getTickerMeta } from '@/data/tickers';
 import { formatCurrency, formatShares, timeAgo, daysAgo } from '@/lib/format';
 import { ActionBadge, MarketTag, SentimentBadge, LoadingCards, ErrorCard } from '@/components/ui';
+import { WatchlistStarButton } from '@/components/WatchlistStar';
 
 type SortKey = 'company' | 'insider' | 'action' | 'value' | 'date';
 type SortDirection = 'asc' | 'desc';
@@ -98,6 +100,8 @@ export function InsidersTab() {
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const { data, loading, error, refetch } = useApi(api.insiders, 'insiders');
   const newsData = useApi(api.news, 'news');
+  const institutionsData = useApi(api.institutions);
+  const polymarketData = useApi(api.markets);
 
   function handleSort(key: SortKey) {
     if (key === sortKey) {
@@ -113,6 +117,28 @@ export function InsidersTab() {
     for (const t of newsData.data?.data ?? []) map.set(t.ticker, t.headlines);
     return map;
   }, [newsData.data]);
+
+  const institutionsByTicker = useMemo(() => {
+    const map = new Map<string, InstitutionalPosition[]>();
+    for (const p of institutionsData.data?.data ?? []) {
+      const arr = map.get(p.ticker) ?? [];
+      arr.push(p);
+      map.set(p.ticker, arr);
+    }
+    return map;
+  }, [institutionsData.data]);
+
+  // Watchlist star buttons on this tab's cards need a conviction score too, so the snapshot
+  // saved at add-time matches what the Conviction tab would show for the same stock.
+  const convictionByTicker = useMemo(() => {
+    const results = computeConviction({
+      insiders: data?.data ?? [],
+      institutions: institutionsData.data?.data ?? [],
+      polymarket: polymarketData.data?.data ?? [],
+      news: Array.from(newsByTicker.values()).flat(),
+    });
+    return new Map(results.map((r) => [r.ticker, r.totalScore]));
+  }, [data, institutionsData.data, polymarketData.data, newsByTicker]);
 
   const filtered = useMemo(() => {
     const trades = data?.data ?? [];
@@ -244,11 +270,19 @@ export function InsidersTab() {
                     <p className="text-2xs text-ink-500">{trade.insiderTitle}</p>
                   </div>
                 </div>
-                <div className="text-right">
-                  <div className="font-mono text-sm font-bold text-ink-50">
-                    {formatCurrency(trade.value)}
+                <div className="flex flex-col items-end gap-1">
+                  <WatchlistStarButton
+                    target={{ symbol: trade.ticker, name: meta.name, market: meta.market, currency: meta.currency, sector: meta.sector }}
+                    convictionScore={convictionByTicker.get(trade.ticker) ?? 0}
+                    institutions={institutionsByTicker.get(trade.ticker) ?? []}
+                    news={newsByTicker.get(trade.ticker) ?? []}
+                  />
+                  <div className="text-right">
+                    <div className="font-mono text-sm font-bold text-ink-50">
+                      {formatCurrency(trade.value)}
+                    </div>
+                    <p className="text-2xs text-ink-500">{timeAgo(trade.filingDate)}</p>
                   </div>
-                  <p className="text-2xs text-ink-500">{timeAgo(trade.filingDate)}</p>
                 </div>
               </div>
 
@@ -285,11 +319,18 @@ export function InsidersTab() {
                     <SortHeader label="Action" sortKey="action" activeKey={sortKey} direction={sortDirection} onSort={handleSort} />
                     <SortHeader label="Value" sortKey="value" activeKey={sortKey} direction={sortDirection} onSort={handleSort} align="right" />
                     <SortHeader label="Date" sortKey="date" activeKey={sortKey} direction={sortDirection} onSort={handleSort} align="right" />
+                    <th className="px-3 py-2.5" />
                   </tr>
                 </thead>
                 <tbody>
                   {sortedForTable.map((trade) => (
-                    <InsiderTableRow key={trade.id} trade={trade} headlines={newsByTicker.get(trade.ticker) ?? []} />
+                    <InsiderTableRow
+                      key={trade.id}
+                      trade={trade}
+                      headlines={newsByTicker.get(trade.ticker) ?? []}
+                      institutions={institutionsByTicker.get(trade.ticker) ?? []}
+                      convictionScore={convictionByTicker.get(trade.ticker) ?? 0}
+                    />
                   ))}
                 </tbody>
               </table>
@@ -325,7 +366,17 @@ export function InsidersTab() {
   );
 }
 
-function InsiderTableRow({ trade, headlines }: { trade: InsiderTrade; headlines: NewsHeadline[] }) {
+function InsiderTableRow({
+  trade,
+  headlines,
+  institutions,
+  convictionScore,
+}: {
+  trade: InsiderTrade;
+  headlines: NewsHeadline[];
+  institutions: InstitutionalPosition[];
+  convictionScore: number;
+}) {
   const meta = getTickerMeta(trade.ticker);
   return (
     <tr className="border-b border-ink-700/40 transition-colors last:border-0 hover:bg-ink-800/40">
@@ -353,6 +404,14 @@ function InsiderTableRow({ trade, headlines }: { trade: InsiderTrade; headlines:
         </p>
       </td>
       <td className="px-3 py-3 text-right text-2xs text-ink-500">{timeAgo(trade.filingDate)}</td>
+      <td className="px-3 py-3 text-right">
+        <WatchlistStarButton
+          target={{ symbol: trade.ticker, name: meta.name, market: meta.market, currency: meta.currency, sector: meta.sector }}
+          convictionScore={convictionScore}
+          institutions={institutions}
+          news={headlines}
+        />
+      </td>
     </tr>
   );
 }

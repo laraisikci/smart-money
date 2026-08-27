@@ -1,14 +1,22 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Activity, ChevronRight, Calendar, Globe2, Star } from 'lucide-react';
-import type { ConvictionResult, Sector, NewsHeadline, SearchResult, AnalyzeResponse } from '@/types';
+import { useMemo, useState } from 'react';
+import { Activity, ChevronRight, Calendar, Globe2 } from 'lucide-react';
+import type {
+  ConvictionResult,
+  Sector,
+  NewsHeadline,
+  InstitutionalPosition,
+  TechnicalIndicators,
+  SearchResult,
+  AnalyzeResponse,
+} from '@/types';
 import { SECTORS } from '@/types';
 import { computeConviction, getSectorTopPick } from '@/lib/conviction';
 import { api } from '@/lib/api';
 import { useApi } from '@/lib/useApi';
 import { getEarningsDate, daysUntilEarnings } from '@/data/earnings';
 import { registerAdHocTicker, isTrackedTicker } from '@/data/tickers';
-import { getWatchlist, addToWatchlist, removeFromWatchlist, isWatchlisted } from '@/lib/watchlist';
 import { SignalIcons, MarketTag, TrendArrow, SentimentBadge, LoadingCards, ErrorCard } from '@/components/ui';
+import { WatchlistStarButton } from '@/components/WatchlistStar';
 import { TickerDetailDrawer } from '@/components/TickerDetailDrawer';
 import { SearchBar } from '@/components/SearchBar';
 
@@ -40,7 +48,6 @@ export function ConvictionTab() {
   // in one map, keyed by ticker, whether they got here via a one-off search or a saved watchlist
   // entry — both need the exact same override treatment in the detail drawer below.
   const [adhocAnalyses, setAdhocAnalyses] = useState<Map<string, AnalyzeResponse>>(new Map());
-  const [watchlist, setWatchlist] = useState(() => getWatchlist());
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
 
@@ -85,24 +92,24 @@ export function ConvictionTab() {
     }
   }
 
-  // Fetch (once) for every saved watchlist ticker so it's folded into the main list below,
-  // exactly like the pre-tracked universe — this is what makes "save to watchlist" actually mean
-  // something rather than just storing a symbol nobody reads back.
-  useEffect(() => {
-    const toFetch = watchlist.filter((w) => !adhocAnalyses.has(w.symbol));
-    if (toFetch.length === 0) return;
-    toFetch.forEach((w) =>
-      analyzeAndCache({ symbol: w.symbol, name: w.name, market: w.market, currency: w.currency, sector: w.sector }),
-    );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [watchlist]);
-
   const adhocInsiders = useMemo(() => Array.from(adhocAnalyses.values()).flatMap((a) => a.insiders), [adhocAnalyses]);
   const adhocInstitutions = useMemo(
     () => Array.from(adhocAnalyses.values()).flatMap((a) => a.institutions),
     [adhocAnalyses],
   );
   const adhocNews = useMemo(() => Array.from(adhocAnalyses.values()).flatMap((a) => a.news), [adhocAnalyses]);
+
+  // Per-ticker lookup for the watchlist star button, which needs this stock's institutional
+  // positions alone to compute its "increasing/decreasing/neutral" stance at add-time.
+  const institutionsByTicker = useMemo(() => {
+    const map = new Map<string, InstitutionalPosition[]>();
+    for (const p of [...(institutions.data?.data ?? []), ...adhocInstitutions]) {
+      const arr = map.get(p.ticker) ?? [];
+      arr.push(p);
+      map.set(p.ticker, arr);
+    }
+    return map;
+  }, [institutions.data, adhocInstitutions]);
 
   // Deliberately not gated on `ready` (all 4 sources loaded) — computeConviction already treats
   // every signal as optional, so a ticker with just 1 of 4 signals in produces a valid result.
@@ -120,11 +127,6 @@ export function ConvictionTab() {
   const results = useMemo(
     () => (marketFilter === 'ALL' ? allResults : allResults.filter((r) => r.market === marketFilter)),
     [allResults, marketFilter],
-  );
-
-  const watchlistResults = useMemo(
-    () => watchlist.map((w) => allResults.find((r) => r.ticker === w.symbol)).filter((r): r is ConvictionResult => !!r),
-    [watchlist, allResults],
   );
 
   async function handleSearchSelect(result: SearchResult) {
@@ -181,23 +183,6 @@ export function ConvictionTab() {
         signalsActive: [],
       },
     );
-  }
-
-  function handleToggleWatchlist() {
-    if (!selected) return;
-    if (isWatchlisted(selected.ticker)) {
-      setWatchlist(removeFromWatchlist(selected.ticker));
-    } else {
-      setWatchlist(
-        addToWatchlist({
-          symbol: selected.ticker,
-          name: selected.name,
-          market: selected.market,
-          currency: selected.currency,
-          sector: selected.sector,
-        }),
-      );
-    }
   }
 
   const selectedAdhoc = selected ? adhocAnalyses.get(selected.ticker) : undefined;
@@ -258,29 +243,6 @@ export function ConvictionTab() {
         />
       )}
 
-      {/* My Watchlist — stocks saved from search, regardless of tracked-universe rank */}
-      {watchlistResults.length > 0 && (
-        <div>
-          <div className="mb-3 flex items-center gap-1.5">
-            <Star className="h-3.5 w-3.5 text-teal-400" />
-            <p className="text-xs font-medium uppercase tracking-wider text-ink-400">
-              My Watchlist
-            </p>
-          </div>
-          <div className="space-y-3 lg:grid lg:grid-cols-2 lg:gap-3 lg:space-y-0">
-            {watchlistResults.map((r, i) => (
-              <ConvictionCard
-                key={`watch-${r.ticker}`}
-                result={r}
-                rank={i + 1}
-                headlines={displayNewsByTicker.get(r.ticker) ?? []}
-                onClick={() => setSelected(r)}
-              />
-            ))}
-          </div>
-        </div>
-      )}
-
       {/* European Movers — EU-tagged tickers only, ranked separately from the global list */}
       {europeanMovers.length > 0 && (
         <div>
@@ -297,6 +259,8 @@ export function ConvictionTab() {
                 result={r}
                 rank={i + 1}
                 headlines={displayNewsByTicker.get(r.ticker) ?? []}
+                institutions={institutionsByTicker.get(r.ticker) ?? []}
+                technicals={adhocAnalyses.get(r.ticker)?.technicals}
                 onClick={() => setSelected(r)}
               />
             ))}
@@ -317,6 +281,8 @@ export function ConvictionTab() {
               rank={i + 1}
               featured
               headlines={displayNewsByTicker.get(r.ticker) ?? []}
+              institutions={institutionsByTicker.get(r.ticker) ?? []}
+              technicals={adhocAnalyses.get(r.ticker)?.technicals}
               onClick={() => setSelected(r)}
             />
           ))}
@@ -338,6 +304,8 @@ export function ConvictionTab() {
                 sector={sector as Sector}
                 result={pick}
                 headlines={displayNewsByTicker.get(pick.ticker) ?? []}
+                institutions={institutionsByTicker.get(pick.ticker) ?? []}
+                technicals={adhocAnalyses.get(pick.ticker)?.technicals}
                 onClick={() => setSelected(pick)}
               />
             );
@@ -360,8 +328,6 @@ export function ConvictionTab() {
         news={selected ? (displayNewsByTicker.get(selected.ticker) ?? []) : []}
         technicalsOverride={selectedIsAdhoc ? (selectedAdhoc?.technicals ?? null) : undefined}
         skipNewsFetch={selectedIsAdhoc}
-        watchlisted={selected ? isWatchlisted(selected.ticker) : false}
-        onToggleWatchlist={selectedIsAdhoc ? handleToggleWatchlist : undefined}
       />
     </div>
   );
@@ -381,23 +347,38 @@ function EarningsBadge({ ticker }: { ticker: string }) {
   );
 }
 
+// Cards render an outer <div role="button"> rather than a native <button> so the watchlist star
+// (a real <button> of its own, with its own click handler) can nest inside without producing
+// invalid button-in-button markup.
 function ConvictionCard({
   result,
   rank,
   featured,
   headlines,
+  institutions,
+  technicals,
   onClick,
 }: {
   result: ConvictionResult;
   rank: number;
   featured?: boolean;
   headlines: NewsHeadline[];
+  institutions: InstitutionalPosition[];
+  technicals?: TechnicalIndicators | null;
   onClick: () => void;
 }) {
   return (
-    <button
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onClick}
-      className={`card w-full animate-fade-in-up p-4 text-left transition-all duration-200 hover:border-teal-500/40 active:scale-[0.99] ${
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onClick();
+        }
+      }}
+      className={`card w-full cursor-pointer animate-fade-in-up p-4 text-left transition-all duration-200 hover:border-teal-500/40 active:scale-[0.99] ${
         featured ? 'border-teal-500/20 bg-gradient-to-br from-teal-500/5 to-transparent' : ''
       }`}
     >
@@ -417,9 +398,18 @@ function ConvictionCard({
             </div>
           </div>
         </div>
-        <div className="text-right">
-          <div className="font-mono text-2xl font-bold text-teal-300">{result.totalScore}</div>
-          <p className="text-2xs text-ink-500">conviction</p>
+        <div className="flex flex-col items-end gap-1">
+          <WatchlistStarButton
+            target={{ symbol: result.ticker, name: result.name, market: result.market, currency: result.currency, sector: result.sector }}
+            convictionScore={result.totalScore}
+            institutions={institutions}
+            news={headlines}
+            technicals={technicals}
+          />
+          <div className="text-right">
+            <div className="font-mono text-2xl font-bold text-teal-300">{result.totalScore}</div>
+            <p className="text-2xs text-ink-500">conviction</p>
+          </div>
         </div>
       </div>
 
@@ -447,7 +437,7 @@ function ConvictionCard({
           </div>
         ))}
       </div>
-    </button>
+    </div>
   );
 }
 
@@ -455,17 +445,29 @@ function SectorRow({
   sector,
   result,
   headlines,
+  institutions,
+  technicals,
   onClick,
 }: {
   sector: Sector;
   result: ConvictionResult;
   headlines: NewsHeadline[];
+  institutions: InstitutionalPosition[];
+  technicals?: TechnicalIndicators | null;
   onClick: () => void;
 }) {
   return (
-    <button
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onClick}
-      className="card flex w-full items-center justify-between p-3 text-left transition-all duration-200 hover:border-ink-600 active:scale-[0.99]"
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onClick();
+        }
+      }}
+      className="card flex w-full cursor-pointer items-center justify-between p-3 text-left transition-all duration-200 hover:border-ink-600 active:scale-[0.99]"
     >
       <div className="flex items-center gap-3">
         <span className="w-20 shrink-0 text-xs font-medium text-ink-400">{sector}</span>
@@ -483,8 +485,15 @@ function SectorRow({
       <div className="flex items-center gap-3">
         <SignalIcons signals={result.signalsActive} />
         <span className="font-mono text-sm font-bold text-teal-300">{result.totalScore}</span>
+        <WatchlistStarButton
+          target={{ symbol: result.ticker, name: result.name, market: result.market, currency: result.currency, sector: result.sector }}
+          convictionScore={result.totalScore}
+          institutions={institutions}
+          news={headlines}
+          technicals={technicals}
+        />
         <ChevronRight className="h-4 w-4 text-ink-500" />
       </div>
-    </button>
+    </div>
   );
 }
