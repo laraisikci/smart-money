@@ -1,6 +1,9 @@
-import type { ConvictionResult, NewsHeadline, TechnicalIndicators, AnalystRating } from '@/types';
+import type { ConvictionResult, NewsHeadline, TechnicalIndicators, AnalystRating, MacroIndicator } from '@/types';
 import { reasonAboutTechnicals, technicalScore } from './technicalReasoning';
 import { aggregateSentiment, recentHeadlines } from './newsSentiment';
+import { fearGreedZone } from './fearGreed';
+import { computeMarketSentiment } from './marketSentiment';
+import { recommendationLabel } from './analystLabel';
 
 export type FullAnalysisVerdict = 'Bullish' | 'Bearish' | 'Mixed';
 
@@ -38,15 +41,6 @@ function smartMoneyClause(result: ConvictionResult): Clause | null {
   return { text: `Smart money: ${parts.join(', and ')}.`, direction };
 }
 
-const RECOMMENDATION_LABELS: Record<string, string> = {
-  strongBuy: 'Strong Buy',
-  buy: 'Buy',
-  hold: 'Hold',
-  sell: 'Sell',
-  strongSell: 'Strong Sell',
-  none: 'No Rating',
-};
-
 function analystDirection(rating: AnalystRating): Direction {
   // Yahoo's own scale: 1 = Strong Buy ... 5 = Strong Sell.
   if (rating.recommendationMean <= 2.5) return 'Bullish';
@@ -55,7 +49,7 @@ function analystDirection(rating: AnalystRating): Direction {
 }
 
 function analystClause(rating: AnalystRating, price: number): Clause {
-  const label = RECOMMENDATION_LABELS[rating.recommendationKey] ?? rating.recommendationKey;
+  const label = recommendationLabel(rating.recommendationKey);
   let targetText = '';
   if (rating.targetMeanPrice !== null) {
     const upside = ((rating.targetMeanPrice - price) / price) * 100;
@@ -65,6 +59,48 @@ function analystClause(rating: AnalystRating, price: number): Clause {
   return {
     text: `${rating.numberOfAnalysts} analyst${rating.numberOfAnalysts !== 1 ? 's' : ''} rate it a consensus ${label}${targetText}.`,
     direction: analystDirection(rating),
+  };
+}
+
+// Contrarian pairing, not a plain sentiment read — extreme crowd emotion combined with the
+// stock's own technicals confirming the same extreme is what makes this worth flagging, per the
+// exact wording specced for this feature.
+function fearGreedContrarianClause(fearGreed: MacroIndicator | null, technicals: TechnicalIndicators | null): Clause | null {
+  if (!fearGreed || !technicals || technicals.rsi14 === null) return null;
+  const zone = fearGreedZone(fearGreed.value);
+  const oversold = technicals.rsi14 <= 30;
+  const overbought = technicals.rsi14 >= 70;
+  if (zone === 'Extreme Fear' && oversold) {
+    return { text: 'Market fear creating buying opportunity — Fear & Greed is in Extreme Fear while this stock is technically oversold.', direction: 'Bullish' };
+  }
+  if (zone === 'Extreme Greed' && overbought) {
+    return { text: 'Greed + overbought = elevated risk — Fear & Greed is in Extreme Greed while this stock is technically overbought.', direction: 'Bearish' };
+  }
+  return null;
+}
+
+function putCallClause(putCallRatio: MacroIndicator | null): Clause | null {
+  if (!putCallRatio) return null;
+  if (putCallRatio.value < 0.7) {
+    return {
+      text: `Options put/call ratio at ${putCallRatio.value.toFixed(2)} is low — the market isn't showing much worry about this stock right now.`,
+      direction: 'Bullish',
+    };
+  }
+  if (putCallRatio.value > 1.0) {
+    return {
+      text: `Options put/call ratio at ${putCallRatio.value.toFixed(2)} is elevated — a bearish signal from the options market.`,
+      direction: 'Bearish',
+    };
+  }
+  return null;
+}
+
+function marketSentimentClause(sentiment: ReturnType<typeof computeMarketSentiment>): Clause | null {
+  if (!sentiment) return null;
+  return {
+    text: `Combined market sentiment (news, Fear & Greed, analyst consensus, options positioning) reads ${sentiment.label.toLowerCase()} (${sentiment.score}/100).`,
+    direction: sentiment.label,
   };
 }
 
@@ -90,6 +126,7 @@ export function buildFullAnalysis(
   result: ConvictionResult,
   technicals: TechnicalIndicators | null,
   headlines: NewsHeadline[],
+  macro: MacroIndicator[] = [],
 ): FullAnalysis | null {
   const clauses: Clause[] = [];
 
@@ -112,6 +149,24 @@ export function buildFullAnalysis(
 
   const news = newsClause(headlines);
   if (news) clauses.push(news);
+
+  const fearGreed = macro.find((m) => m.id === 'fearGreed') ?? null;
+  const putCallRatio = macro.find((m) => m.id === 'putCallRatio') ?? null;
+
+  const fearGreedContrarian = fearGreedContrarianClause(fearGreed, technicals);
+  if (fearGreedContrarian) clauses.push(fearGreedContrarian);
+
+  const putCall = putCallClause(putCallRatio);
+  if (putCall) clauses.push(putCall);
+
+  const sentiment = computeMarketSentiment({
+    headlines,
+    fearGreed,
+    analyst: technicals?.analyst ?? null,
+    putCallRatio,
+  });
+  const sentimentClause = marketSentimentClause(sentiment);
+  if (sentimentClause) clauses.push(sentimentClause);
 
   if (clauses.length === 0) return null;
 

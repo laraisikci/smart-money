@@ -87,11 +87,20 @@ export interface TickerNews {
   headlines: NewsHeadline[];
 }
 
+export interface AnalystRecommendationDistribution {
+  strongBuy: number;
+  buy: number;
+  hold: number;
+  sell: number;
+  strongSell: number;
+}
+
 export interface AnalystRating {
   recommendationMean: number;
   recommendationKey: string;
   numberOfAnalysts: number;
   targetMeanPrice: number | null;
+  distribution: AnalystRecommendationDistribution | null;
 }
 
 export interface TechnicalIndicators {
@@ -99,6 +108,7 @@ export interface TechnicalIndicators {
   price: number;
   sma20: number | null;
   sma50: number | null;
+  sma125: number | null;
   sma200: number | null;
   ema20: number | null;
   ema50: number | null;
@@ -110,7 +120,15 @@ export interface TechnicalIndicators {
   asOf: string;
 }
 
-export type MacroIndicatorId = 'ecbRate' | 'eurUsd' | 'inflation' | 'brent' | 'vix' | 'stoxx50';
+export type MacroIndicatorId =
+  | 'ecbRate'
+  | 'eurUsd'
+  | 'inflation'
+  | 'brent'
+  | 'vix'
+  | 'stoxx50'
+  | 'fearGreed'
+  | 'putCallRatio';
 
 export interface MacroIndicator {
   id: MacroIndicatorId;

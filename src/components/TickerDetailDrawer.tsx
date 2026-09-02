@@ -10,6 +10,7 @@ import {
   LineChart,
   ChevronDown,
   ChevronUp,
+  Users,
 } from 'lucide-react';
 import type {
   ConvictionResult,
@@ -18,6 +19,8 @@ import type {
   PolymarketMarket,
   NewsHeadline,
   TechnicalIndicators,
+  AnalystRating,
+  MacroIndicator,
 } from '@/types';
 import { getEarningsDate, daysUntilEarnings } from '@/data/earnings';
 import { getShortInterest, shortInterestLevel } from '@/data/shortInterest';
@@ -36,7 +39,75 @@ import {
   type Zone,
 } from '@/lib/technicalReasoning';
 import { buildFullAnalysis } from '@/lib/fullAnalysis';
+import { computeMarketSentiment, type MarketSentimentLabel } from '@/lib/marketSentiment';
+import { recommendationLabel, recommendationLean } from '@/lib/analystLabel';
 import { api } from '@/lib/api';
+
+const SENTIMENT_BADGE_CLASS: Record<MarketSentimentLabel, string> = {
+  Bullish: 'text-bull-400 bg-bull-500/15 border-bull-500/30',
+  Bearish: 'text-bear-400 bg-bear-500/15 border-bear-500/30',
+  Neutral: 'text-ink-300 bg-ink-700/40 border-ink-600',
+};
+
+function recommendationColorClass(key: string): string {
+  const lean = recommendationLean(key);
+  if (lean === 'bullish') return 'text-bull-400 bg-bull-500/15 border-bull-500/30';
+  if (lean === 'bearish') return 'text-bear-400 bg-bear-500/15 border-bear-500/30';
+  return 'text-warn-400 bg-warn-500/15 border-warn-500/30';
+}
+
+function AnalystSection({ analyst, price }: { analyst: AnalystRating; price: number }) {
+  const label = recommendationLabel(analyst.recommendationKey);
+  const upside = analyst.targetMeanPrice !== null ? ((analyst.targetMeanPrice - price) / price) * 100 : null;
+  const dist = analyst.distribution;
+  const buyCount = dist ? dist.strongBuy + dist.buy : 0;
+  const holdCount = dist?.hold ?? 0;
+  const sellCount = dist ? dist.sell + dist.strongSell : 0;
+  const distTotal = buyCount + holdCount + sellCount;
+
+  return (
+    <div className="card p-4 lg:col-start-1">
+      <div className="mb-3 flex items-center gap-2">
+        <Users className="h-4 w-4 text-ink-400" />
+        <h4 className="text-xs font-medium uppercase tracking-wider text-ink-400">Analyst Consensus</h4>
+        <span className="ml-auto text-2xs text-ink-500">
+          {analyst.numberOfAnalysts} analyst{analyst.numberOfAnalysts !== 1 ? 's' : ''}
+        </span>
+      </div>
+
+      <span
+        className={`inline-flex items-center rounded-full border px-3 py-1.5 text-sm font-bold ${recommendationColorClass(analyst.recommendationKey)}`}
+      >
+        {label}
+      </span>
+
+      {analyst.targetMeanPrice !== null && upside !== null && (
+        <div className="mt-3 flex items-baseline gap-2">
+          <span className="font-mono text-2xl font-bold text-ink-50">{fmtPrice(analyst.targetMeanPrice)}</span>
+          <span className={`font-mono text-sm font-semibold ${upside >= 0 ? 'text-bull-400' : 'text-bear-400'}`}>
+            {upside >= 0 ? '+' : ''}
+            {upside.toFixed(1)}% {upside >= 0 ? 'upside' : 'downside'}
+          </span>
+        </div>
+      )}
+
+      {distTotal > 0 && (
+        <div className="mt-3">
+          <div className="flex h-2 w-full overflow-hidden rounded-full bg-ink-800">
+            {buyCount > 0 && <div className="h-full bg-bull-500" style={{ width: `${(buyCount / distTotal) * 100}%` }} />}
+            {holdCount > 0 && <div className="h-full bg-ink-500" style={{ width: `${(holdCount / distTotal) * 100}%` }} />}
+            {sellCount > 0 && <div className="h-full bg-bear-500" style={{ width: `${(sellCount / distTotal) * 100}%` }} />}
+          </div>
+          <div className="mt-1.5 flex items-center justify-between text-2xs text-ink-500">
+            <span className="text-bull-400">{buyCount} Buy</span>
+            <span>{holdCount} Hold</span>
+            <span className="text-bear-400">{sellCount} Sell</span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 const fmtPrice = (v: number) => `$${v.toFixed(2)}`;
 
@@ -81,6 +152,9 @@ interface TickerDetailDrawerProps {
   // for every other caller, which keeps the existing on-demand fetch behavior unchanged.
   technicalsOverride?: TechnicalIndicators | null;
   skipNewsFetch?: boolean;
+  // Macro indicators (for the Fear & Greed contrarian read and combined Market Sentiment score).
+  // Optional/defaulted so existing callers don't all need updating at once.
+  macro?: MacroIndicator[];
 }
 
 export function TickerDetailDrawer({
@@ -92,6 +166,7 @@ export function TickerDetailDrawer({
   news: bulkNews,
   technicalsOverride,
   skipNewsFetch,
+  macro = [],
 }: TickerDetailDrawerProps) {
   useEffect(() => {
     if (result) {
@@ -169,7 +244,15 @@ export function TickerDetailDrawer({
   const news = onDemandNews ?? bulkNews;
   const techReasoning = effectiveTechnicals ? reasonAboutTechnicals(effectiveTechnicals) : null;
   const techScore = effectiveTechnicals ? technicalScore(effectiveTechnicals) : null;
-  const fullAnalysis = buildFullAnalysis(result, effectiveTechnicals, news);
+  const fullAnalysis = buildFullAnalysis(result, effectiveTechnicals, news, macro);
+  const fearGreed = macro.find((m) => m.id === 'fearGreed') ?? null;
+  const putCallRatio = macro.find((m) => m.id === 'putCallRatio') ?? null;
+  const marketSentiment = computeMarketSentiment({
+    headlines: news,
+    fearGreed,
+    analyst: effectiveTechnicals?.analyst ?? null,
+    putCallRatio,
+  });
 
   return (
     <>
@@ -227,6 +310,23 @@ export function TickerDetailDrawer({
             </div>
             <div className="font-mono text-3xl font-bold text-teal-300">{result.totalScore}</div>
           </div>
+
+          {/* Market Sentiment — combined news (30%) + Fear & Greed (25%) + analyst consensus
+              (30%) + options put/call ratio (15%), re-normalized over whatever's actually available */}
+          {marketSentiment && (
+            <div className="flex items-center gap-2 lg:col-start-1">
+              <span className="text-xs text-ink-400">Market Sentiment</span>
+              <span
+                className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-2xs font-semibold ${SENTIMENT_BADGE_CLASS[marketSentiment.label]}`}
+              >
+                {marketSentiment.label} · {marketSentiment.score}/100
+              </span>
+            </div>
+          )}
+
+          {/* Analyst Consensus — moved directly after the summary cards above, before Technical
+              Analysis, per spec */}
+          {effectiveTechnicals?.analyst && <AnalystSection analyst={effectiveTechnicals.analyst} price={effectiveTechnicals.price} />}
 
           {/* Earnings date */}
           {earnings && daysToEarn !== null && daysToEarn > 0 && (
@@ -367,6 +467,7 @@ export function TickerDetailDrawer({
                         [
                           ['SMA 20', effectiveTechnicals.sma20],
                           ['SMA 50', effectiveTechnicals.sma50],
+                          ['SMA 125', effectiveTechnicals.sma125],
                           ['SMA 200', effectiveTechnicals.sma200],
                           ['EMA 20', effectiveTechnicals.ema20],
                           ['EMA 50', effectiveTechnicals.ema50],

@@ -32,11 +32,15 @@ export interface TechnicalScore {
 // Slower-moving averages carry more weight than fast ones — the same logic as why the reasoning
 // above anchors its trend read on SMA200 rather than SMA20: a price crossing its 20-day average
 // is common noise, crossing its 200-day average is a real trend change.
-const MA_WEIGHTS: { key: 'sma20' | 'sma50' | 'sma200' | 'ema20' | 'ema50' | 'ema200'; weight: number }[] = [
+const MA_WEIGHTS: {
+  key: 'sma20' | 'sma50' | 'sma125' | 'sma200' | 'ema20' | 'ema50' | 'ema200';
+  weight: number;
+}[] = [
   { key: 'sma20', weight: 1 },
   { key: 'ema20', weight: 1 },
   { key: 'sma50', weight: 1.5 },
   { key: 'ema50', weight: 1.5 },
+  { key: 'sma125', weight: 1.75 },
   { key: 'sma200', weight: 2 },
   { key: 'ema200', weight: 2 },
 ];
@@ -75,6 +79,18 @@ export function technicalScore(ind: TechnicalIndicators): TechnicalScore | null 
 function trendClause(price: number, sma200: number): string {
   const rel = price >= sma200 ? 'above' : 'below';
   return `Price is ${rel} its 200-day moving average ($${sma200.toFixed(2)}).`;
+}
+
+// A separate, standalone clause rather than a new verdict branch — SMA125 sits between the
+// existing 50/200-day reads this function already anchors its verdict on, so it adds color
+// ("recovering" vs. "fully confirmed") without changing what the verdict itself concludes.
+function sma125Clause(price: number, sma125: number | null, sma200: number): string | null {
+  if (sma125 === null) return null;
+  const aboveSma125 = price >= sma125;
+  const aboveSma200 = price >= sma200;
+  if (aboveSma125 && !aboveSma200) return 'Recovering but not yet in long-term uptrend.';
+  if (aboveSma125 && aboveSma200) return 'Strong trend confirmation across all timeframes.';
+  return null;
 }
 
 function momentumClause(rsi: number, stochK: number): { text: string; agree: boolean } {
@@ -141,6 +157,7 @@ export function reasonAboutTechnicals(ind: TechnicalIndicators): TechnicalReason
   }
 
   const mom = momentumClause(rsi, stochK);
-  const paragraph = `${trendClause(price, sma200)} ${lead} ${mom.text}`;
+  const sma125Text = sma125Clause(price, ind.sma125, sma200);
+  const paragraph = [trendClause(price, sma200), lead, mom.text, sma125Text].filter(Boolean).join(' ');
   return { paragraph, verdict };
 }

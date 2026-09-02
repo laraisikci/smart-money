@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { cachedFetchJson } from '../lib/cache.js';
 import { fetchYahooJson } from '../lib/newsClient.js';
+import { fetchWithTimeout } from '../lib/fetchTimeout.js';
 import type { MacroIndicator, MacroIndicatorId } from '../types.js';
 
 const CACHE_TTL_MS = 30 * 60_000; // 30min, per spec
@@ -241,6 +242,69 @@ async function fetchStoxx50(): Promise<MacroIndicator> {
   };
 }
 
+// ---- CNN Fear & Greed Index ----
+// Undocumented but widely-used public endpoint. Verified directly: it 403/418s without a
+// browser-shaped User-Agent + Referer (CNN's edge blocks anything that looks like a bare script),
+// but returns real data with both headers set — no API key involved.
+const FEAR_GREED_ZONES = [
+  { max: 25, label: 'Extreme Fear' },
+  { max: 45, label: 'Fear' },
+  { max: 55, label: 'Neutral' },
+  { max: 75, label: 'Greed' },
+  { max: Infinity, label: 'Extreme Greed' },
+];
+function fearGreedZoneLabel(score: number): string {
+  return FEAR_GREED_ZONES.find((z) => score <= z.max)?.label ?? 'Extreme Greed';
+}
+
+interface CnnFearGreedResponse {
+  fear_and_greed?: { score?: number; rating?: string; timestamp?: string; previous_close?: number };
+}
+
+async function fetchFearGreed(): Promise<MacroIndicator> {
+  const res = await fetchWithTimeout('https://production.dataviz.cnn.io/index/fearandgreed/graphdata', {
+    headers: {
+      'User-Agent':
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+      Accept: 'application/json',
+      Referer: 'https://www.cnn.com/markets/fear-and-greed',
+    },
+  });
+  if (!res.ok) throw new Error(`CNN Fear & Greed request failed: ${res.status} ${res.statusText}`);
+  const data = (await res.json()) as CnnFearGreedResponse;
+  const fg = data.fear_and_greed;
+  if (fg?.score === undefined || !fg.rating) throw new Error('No Fear & Greed data in response');
+
+  const value = round(fg.score);
+  const previousValue = fg.previous_close !== undefined ? round(fg.previous_close) : value;
+  const change = round(value - previousValue);
+  return {
+    id: 'fearGreed',
+    label: 'Fear & Greed Index',
+    value,
+    unit: '',
+    previousValue,
+    change,
+    changePercent: previousValue !== 0 ? round((change / previousValue) * 100, 2) : null,
+    // Contrarian by design — neither "fear" nor "greed" is simply good or bad for markets, so
+    // there's no single directional read the way there is for e.g. VIX or ECB rate.
+    goodForMarkets: null,
+    interpretation: `Sentiment reads "${fearGreedZoneLabel(value)}" (CNN: "${fg.rating}")`,
+    asOf: fg.timestamp ?? new Date().toISOString(),
+    source: 'CNN Business (Fear & Greed Index)',
+  };
+}
+
+// ---- CBOE equity Put/Call Ratio ----
+// Deliberately always fails: verified directly that CBOE's daily market-statistics page
+// (cboe.com/us/options/market_statistics/daily) is HTML-only with no linked CSV/JSON export, and
+// the actual data feed lives behind Cboe DataShop, a paid subscription — there is no free public
+// API for this. Kept as a real fetcher (rather than omitted entirely) so it surfaces honestly in
+// the `unavailable` list below instead of the feature silently not existing.
+async function fetchPutCallRatio(): Promise<MacroIndicator> {
+  throw new Error('No free public data source for the CBOE equity Put/Call Ratio (requires a paid Cboe DataShop subscription)');
+}
+
 const FETCHERS: { id: MacroIndicatorId; label: string; fn: () => Promise<MacroIndicator> }[] = [
   { id: 'ecbRate', label: 'ECB Interest Rate', fn: fetchEcbRate },
   { id: 'eurUsd', label: 'EUR/USD', fn: fetchEurUsd },
@@ -248,6 +312,8 @@ const FETCHERS: { id: MacroIndicatorId; label: string; fn: () => Promise<MacroIn
   { id: 'brent', label: 'Brent Crude', fn: fetchBrent },
   { id: 'vix', label: 'VIX Fear Index', fn: fetchVix },
   { id: 'stoxx50', label: 'Euro Stoxx 50', fn: fetchStoxx50 },
+  { id: 'fearGreed', label: 'Fear & Greed Index', fn: fetchFearGreed },
+  { id: 'putCallRatio', label: 'Put/Call Ratio', fn: fetchPutCallRatio },
 ];
 
 interface ResponseCacheEntry {

@@ -151,6 +151,7 @@ export function WatchlistTab() {
             news: entryNews,
           });
           const health = computeSignalHealth(entry.snapshot, currentSnapshot);
+          const putCallRatio = macro.data?.data.find((m) => m.id === 'putCallRatio')?.value ?? null;
           const exitScore = technicals
             ? computeExitScore({
                 rsi: technicals.rsi14,
@@ -158,6 +159,7 @@ export function WatchlistTab() {
                 price: technicals.price,
                 sma200: technicals.sma200,
                 analystTarget: technicals.analyst?.targetMeanPrice ?? null,
+                putCallRatio,
               })
             : 0;
           const overbought = exitScore > EXIT_SCORE_OVERBOUGHT_THRESHOLD;

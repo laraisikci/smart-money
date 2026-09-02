@@ -35,6 +35,9 @@ export function ConvictionTab() {
   const institutions = useApi(api.institutions, 'institutions');
   const polymarket = useApi(api.markets, 'markets');
   const news = useApi(api.news, 'news');
+  // Not part of `loading`/`error` below (those gate the main conviction lists) — the drawer's
+  // Fear & Greed read and Market Sentiment badge just render without them until this lands.
+  const macro = useApi(api.macro);
 
   const loading = insiders.loading || institutions.loading || polymarket.loading || news.loading;
   const error = insiders.error || institutions.error || polymarket.error || news.error;
@@ -328,6 +331,7 @@ export function ConvictionTab() {
         news={selected ? (displayNewsByTicker.get(selected.ticker) ?? []) : []}
         technicalsOverride={selectedIsAdhoc ? (selectedAdhoc?.technicals ?? null) : undefined}
         skipNewsFetch={selectedIsAdhoc}
+        macro={macro.data?.data ?? []}
       />
     </div>
   );

@@ -68,6 +68,7 @@ async function computeTechnicalsForSymbol(displayTicker: string, yahooSymbol: st
     price: round(price),
     sma20: roundOrNull(sma(closes, 20)),
     sma50: roundOrNull(sma(closes, 50)),
+    sma125: roundOrNull(sma(closes, 125)),
     sma200: roundOrNull(sma(closes, 200)),
     ema20: roundOrNull(ema(closes, 20)),
     ema50: roundOrNull(ema(closes, 50)),

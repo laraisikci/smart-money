@@ -5,8 +5,40 @@ import { api } from '@/lib/api';
 import { useApi } from '@/lib/useApi';
 import { computeConviction } from '@/lib/conviction';
 import { computeSectorPulse, type SectorPulse, type SectorPulseSignal } from '@/lib/macroSectors';
+import { fearGreedZone, FEAR_GREED_ZONE_COLOR, type FearGreedZone } from '@/lib/fearGreed';
 import { MarketTag, SentimentBadge, LoadingCards, ErrorCard } from '@/components/ui';
 import { TickerDetailDrawer } from '@/components/TickerDetailDrawer';
+
+const FEAR_GREED_ZONE_ORDER: FearGreedZone[] = ['Extreme Fear', 'Fear', 'Neutral', 'Greed', 'Extreme Greed'];
+
+function FearGreedGauge({ indicator }: { indicator: MacroIndicator }) {
+  const zone = fearGreedZone(indicator.value);
+  const color = FEAR_GREED_ZONE_COLOR[zone];
+  return (
+    <div className="card animate-fade-in-up p-3.5">
+      <p className="text-2xs font-medium uppercase tracking-wider text-ink-400">{indicator.label}</p>
+      <div className="mt-1.5 flex items-baseline gap-2">
+        <span className="font-mono text-xl font-bold text-ink-50">{indicator.value.toFixed(0)}</span>
+        <span className="text-2xs font-semibold" style={{ color }}>
+          {zone}
+        </span>
+      </div>
+      <div className="relative mt-2.5 h-1.5 w-full overflow-hidden rounded-full">
+        <div className="flex h-full w-full">
+          {FEAR_GREED_ZONE_ORDER.map((z) => (
+            <div key={z} className="h-full flex-1" style={{ backgroundColor: FEAR_GREED_ZONE_COLOR[z], opacity: 0.5 }} />
+          ))}
+        </div>
+        <div
+          className="absolute top-1/2 h-3 w-1 -translate-y-1/2 rounded-full bg-ink-50"
+          style={{ left: `${Math.max(0, Math.min(100, indicator.value))}%` }}
+        />
+      </div>
+      <p className="mt-2 text-2xs leading-snug text-ink-400">{indicator.interpretation}</p>
+      <p className="mt-1.5 text-2xs text-ink-600">as of {formatAsOf(indicator)}</p>
+    </div>
+  );
+}
 
 function formatIndicatorValue(indicator: MacroIndicator): string {
   switch (indicator.id) {
@@ -21,6 +53,10 @@ function formatIndicatorValue(indicator: MacroIndicator): string {
       return indicator.value.toFixed(2);
     case 'stoxx50':
       return indicator.value.toLocaleString('en-US', { maximumFractionDigits: 0 });
+    case 'fearGreed':
+      return indicator.value.toFixed(0);
+    case 'putCallRatio':
+      return indicator.value.toFixed(2);
   }
 }
 
@@ -209,9 +245,13 @@ export function PulseTab() {
         {macro.data && (
           <>
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
-              {macro.data.data.map((ind) => (
-                <MacroCard key={ind.id} indicator={ind} />
-              ))}
+              {macro.data.data.map((ind) =>
+                ind.id === 'fearGreed' ? (
+                  <FearGreedGauge key={ind.id} indicator={ind} />
+                ) : (
+                  <MacroCard key={ind.id} indicator={ind} />
+                ),
+              )}
             </div>
             {macro.data.unavailable.length > 0 && (
               <p className="mt-2 text-2xs text-ink-600">
@@ -291,6 +331,7 @@ export function PulseTab() {
         institutions={institutions.data?.data ?? []}
         polymarket={polymarket.data?.data ?? []}
         news={selected ? (newsByTicker.get(selected.ticker) ?? []) : []}
+        macro={macro.data?.data ?? []}
       />
     </div>
   );

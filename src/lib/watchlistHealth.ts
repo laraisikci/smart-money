@@ -91,12 +91,18 @@ const STOCH_OVERBOUGHT = 80;
 const SMA200_STRETCH_PCT = 0.15;
 export const EXIT_SCORE_OVERBOUGHT_THRESHOLD = 65;
 
+const PUT_CALL_BEARISH = 1.0;
+
 export function computeExitScore(current: {
   rsi: number | null;
   stochK: number | null;
   price: number | null;
   sma200: number | null;
   analystTarget: number | null;
+  // Market-wide, not stock-specific, so it's a modest bonus on top of the four core factors
+  // above rather than one of them — "high put/call on a stock you hold strengthens the exit
+  // signal," per spec, not a primary driver on its own.
+  putCallRatio?: number | null;
 }): number {
   let score = 0;
   if (current.rsi !== null && current.rsi > RSI_OVERBOUGHT) score += 30;
@@ -107,6 +113,7 @@ export function computeExitScore(current: {
   if (current.price !== null && current.analystTarget !== null && current.price > current.analystTarget) {
     score += 20;
   }
+  if (current.putCallRatio != null && current.putCallRatio > PUT_CALL_BEARISH) score += 10;
   return Math.min(100, score);
 }
 
