@@ -1,6 +1,13 @@
+import { useEffect, useState } from 'react';
 import { TrendingUp, TrendingDown, Building2, BarChart3, AlertTriangle, Newspaper } from 'lucide-react';
 import type { SignalType, NewsHeadline } from '@/types';
 import { recentHeadlines, aggregateSentiment, AGGREGATE_BADGE } from '@/lib/newsSentiment';
+
+// The backend runs on Render's free tier, which spins the server down after ~15 minutes idle —
+// the first request after that has to both wake the dyno and rebuild an empty cache (the slowest
+// path, /api/news, scans the whole tracked universe through a deliberately-throttled Yahoo
+// queue and can take up to a minute). Without this, that wait just looks like the app is broken.
+const SLOW_LOAD_HINT_DELAY_MS = 6_000;
 
 export const SIGNAL_META: Record<
   SignalType,
@@ -13,8 +20,20 @@ export const SIGNAL_META: Record<
 };
 
 export function LoadingCards({ count = 3 }: { count?: number }) {
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setSlow(true), SLOW_LOAD_HINT_DELAY_MS);
+    return () => clearTimeout(t);
+  }, []);
+
   return (
     <div className="space-y-3">
+      {slow && (
+        <p className="text-2xs text-ink-500">
+          Taking longer than usual — the server may be waking up after a period of inactivity.
+          This can take up to a minute; it isn't stuck.
+        </p>
+      )}
       {Array.from({ length: count }).map((_, i) => (
         <div key={i} className="card shimmer h-24 w-full" />
       ))}
