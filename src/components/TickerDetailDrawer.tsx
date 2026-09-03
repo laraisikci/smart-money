@@ -474,7 +474,11 @@ export function TickerDetailDrawer({
                           ['EMA 200', effectiveTechnicals.ema200],
                         ] as [string, number | null][]
                       ).map(([label, value]) => {
-                        if (value === null) return null;
+                        // Loose check on purpose: a backend that hasn't deployed a newer field
+                        // yet (e.g. sma125) omits the key entirely rather than sending it as
+                        // null — value comes back `undefined`, not `null`, and `.toFixed()`
+                        // below would throw on that. Treat both as "nothing to show."
+                        if (value == null) return null;
                         const rel = vsAverage(effectiveTechnicals.price, value);
                         return (
                           <IndicatorTile

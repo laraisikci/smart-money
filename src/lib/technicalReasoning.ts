@@ -59,7 +59,10 @@ const MOMENTUM_WEIGHT = 0.4;
  * doesn't).
  */
 export function technicalScore(ind: TechnicalIndicators): TechnicalScore | null {
-  const available = MA_WEIGHTS.filter((m) => ind[m.key] !== null);
+  // Loose check on purpose — a backend that hasn't deployed a newer field yet (e.g. sma125)
+  // omits the key entirely rather than sending null, and `undefined` should be excluded from
+  // "available" the same way an explicit null is, not silently counted as always-below.
+  const available = MA_WEIGHTS.filter((m) => ind[m.key] != null);
   if (available.length === 0 || ind.rsi14 === null || ind.stochK === null) return null;
 
   const totalWeight = available.reduce((sum, m) => sum + m.weight, 0);
@@ -85,7 +88,7 @@ function trendClause(price: number, sma200: number): string {
 // existing 50/200-day reads this function already anchors its verdict on, so it adds color
 // ("recovering" vs. "fully confirmed") without changing what the verdict itself concludes.
 function sma125Clause(price: number, sma125: number | null, sma200: number): string | null {
-  if (sma125 === null) return null;
+  if (sma125 == null) return null;
   const aboveSma125 = price >= sma125;
   const aboveSma200 = price >= sma200;
   if (aboveSma125 && !aboveSma200) return 'Recovering but not yet in long-term uptrend.';
