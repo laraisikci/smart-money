@@ -40,22 +40,34 @@ async function fetchOnce(yahooSymbol: string, cookie: string, crumb: string): Pr
 export async function fetchAnalystRating(yahooSymbol: string): Promise<AnalystRating | null> {
   try {
     let sess = await getYahooSession();
-    if (!sess) return null;
+    if (!sess) {
+      console.error(`[analystClient] ${yahooSymbol}: no Yahoo session (see [yahooAuth] logs above for why)`);
+      return null;
+    }
 
     let res = await fetchOnce(yahooSymbol, sess.cookie, sess.crumb);
     if (res.status === 401) {
       sess = await getYahooSession(true);
-      if (!sess) return null;
+      if (!sess) {
+        console.error(`[analystClient] ${yahooSymbol}: got 401, retried session, still none`);
+        return null;
+      }
       res = await fetchOnce(yahooSymbol, sess.cookie, sess.crumb);
     }
-    if (!res.ok) return null;
+    if (!res.ok) {
+      console.error(`[analystClient] ${yahooSymbol}: quoteSummary failed — status ${res.status} ${res.statusText}`);
+      return null;
+    }
 
     const data = (await res.json()) as QuoteSummaryResponse;
     const result = data.quoteSummary?.result?.[0];
     const fd = result?.financialData;
     const mean = fd?.recommendationMean?.raw;
     const key = fd?.recommendationKey;
-    if (mean === undefined || !key) return null;
+    if (mean === undefined || !key) {
+      console.error(`[analystClient] ${yahooSymbol}: quoteSummary OK but no financialData — ${JSON.stringify(data).slice(0, 300)}`);
+      return null;
+    }
 
     // "0m" is the current-month trend period — the one meaningful for "what do analysts think
     // right now" (older periods in the same array are for 1/2/3 months ago).
@@ -77,7 +89,8 @@ export async function fetchAnalystRating(yahooSymbol: string): Promise<AnalystRa
       targetMeanPrice: fd?.targetMeanPrice?.raw ?? null,
       distribution,
     };
-  } catch {
+  } catch (err) {
+    console.error(`[analystClient] ${yahooSymbol}: threw —`, err);
     return null;
   }
 }
