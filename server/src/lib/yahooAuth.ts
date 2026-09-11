@@ -16,6 +16,15 @@ const USER_AGENT = 'Mozilla/5.0 (SmartMoneyDashboard)';
 // ever serving on an already-expired crumb.
 const SESSION_TTL_MS = 20 * 60 * 60_000;
 
+// Verified live on Render: getcrumb was returning 429 (rate-limited) on every single ticker's
+// analyst lookup, because a failed session left `session` null, and the cache-check below only
+// short-circuits on a truthy session — so every subsequent call retried the full handshake from
+// scratch. Across a 250-ticker scan that's up to 250 hits on an undocumented endpoint in quick
+// succession, which is plausibly what triggered the rate limit in the first place. This cooldown
+// makes a failure "sticky" for a while so we stop hammering it and give the limit a chance to
+// clear, rather than guaranteeing a self-inflicted 429 on every request in between.
+const FAILURE_COOLDOWN_MS = 15 * 60_000;
+
 interface YahooSession {
   cookie: string;
   crumb: string;
@@ -23,6 +32,7 @@ interface YahooSession {
 }
 
 let session: YahooSession | null = null;
+let lastFailureAt = 0;
 let inFlight: Promise<YahooSession | null> | null = null;
 
 // Logged rather than silently swallowed — this flow works reliably from a residential IP but
@@ -69,10 +79,20 @@ async function fetchSession(): Promise<YahooSession | null> {
 // without every other concurrent caller also independently re-authenticating.
 export async function getYahooSession(forceRefresh = false): Promise<YahooSession | null> {
   if (!forceRefresh && session && session.expires > Date.now()) return session;
+  if (!forceRefresh && !session && Date.now() - lastFailureAt < FAILURE_COOLDOWN_MS) {
+    const remainingMs = FAILURE_COOLDOWN_MS - (Date.now() - lastFailureAt);
+    console.error(`[yahooAuth] skipping retry, still cooling down after last failure (${Math.ceil(remainingMs / 1000)}s left)`);
+    return null;
+  }
   if (!inFlight) {
-    inFlight = fetchSession().finally(() => {
-      inFlight = null;
-    });
+    inFlight = fetchSession()
+      .then((result) => {
+        if (!result) lastFailureAt = Date.now();
+        return result;
+      })
+      .finally(() => {
+        inFlight = null;
+      });
   }
   const result = await inFlight;
   session = result;
