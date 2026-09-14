@@ -1,5 +1,5 @@
 import { fetchYahooJson } from './newsClient.js';
-import { fetchAnalystRating } from './analystClient.js';
+import { fetchAnalystRating } from './finnhubClient.js';
 import { sma, ema, rsi, stochastic } from './technicals.js';
 import type { TechnicalIndicators } from '../types.js';
 

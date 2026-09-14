@@ -28,3 +28,9 @@ services:
       # back to the free Yahoo RSS feed if unset. Get a key at https://gnews.io
       - key: GNEWS_API_KEY
         sync: false
+      # Optional — powers the Analyst Consensus section (recommendation distribution + price
+      # target). Without it, that section just doesn't render, same as any other unavailable
+      # source. Free tier at https://finnhub.io/register. Replaces an earlier Yahoo Finance
+      # cookie/crumb flow that Yahoo blocks outright from Render's IP range.
+      - key: FINNHUB_API_KEY
+        sync: false
