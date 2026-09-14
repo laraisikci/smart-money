@@ -21,6 +21,7 @@ import type {
   TechnicalIndicators,
   AnalystRating,
   MacroIndicator,
+  InstitutionalStance,
 } from '@/types';
 import { getEarningsDate, daysUntilEarnings } from '@/data/earnings';
 import { getShortInterest, shortInterestLevel } from '@/data/shortInterest';
@@ -28,7 +29,7 @@ import { getTickerMeta } from '@/data/tickers';
 import { SignalIcons, ActionBadge, MarketTag, FundAvatar } from '@/components/ui';
 import { WatchlistStarButton } from '@/components/WatchlistStar';
 import { FUND_MAP } from '@/data/funds';
-import { formatCurrency, formatShares, formatDate, timeAgo } from '@/lib/format';
+import { formatCurrency, formatShares, formatDate, timeAgo, daysAgo } from '@/lib/format';
 import { SENTIMENT_DIRECTION } from '@/lib/newsSentiment';
 import {
   reasonAboutTechnicals,
@@ -41,7 +42,100 @@ import {
 import { buildFullAnalysis } from '@/lib/fullAnalysis';
 import { computeMarketSentiment, type MarketSentimentLabel } from '@/lib/marketSentiment';
 import { recommendationLabel, recommendationLean } from '@/lib/analystLabel';
+import { computeInstitutionalStance } from '@/lib/watchlistSnapshot';
 import { api } from '@/lib/api';
+
+const INSIDER_LOOKBACK_DAYS = 90;
+
+const STANCE_LABEL: Record<InstitutionalStance, string> = {
+  increasing: 'Increasing',
+  decreasing: 'Decreasing',
+  neutral: 'Neutral',
+};
+const STANCE_COLOR: Record<InstitutionalStance, string> = {
+  increasing: 'text-bull-400 bg-bull-500/15 border-bull-500/30',
+  decreasing: 'text-bear-400 bg-bear-500/15 border-bear-500/30',
+  neutral: 'text-ink-300 bg-ink-700/40 border-ink-600',
+};
+
+// Yahoo's analyst quoteSummary is blocked from our backend's IP, and its replacement (Finnhub)
+// only covers this data for free on US-listed tickers — confirmed directly, every major free-
+// tier provider (Finnhub, Financial Modeling Prep, Twelve Data) gates non-US analyst coverage
+// behind a paid plan. Rather than show nothing for every European stock, this surfaces the real
+// signals this app already has for any ticker (insider buys/sells, institutional 13F trend,
+// short interest) under an honest label — not dressed up as "analyst ratings" — plus a link out
+// to a source that does carry real EU analyst consensus.
+function InstitutionalSignalsSection({
+  ticker,
+  companyName,
+  insiders,
+  institutions,
+}: {
+  ticker: string;
+  companyName: string;
+  insiders: InsiderTrade[];
+  institutions: InstitutionalPosition[];
+}) {
+  const recentInsiders = insiders.filter((t) => daysAgo(t.filingDate) <= INSIDER_LOOKBACK_DAYS);
+  const buys = recentInsiders.filter((t) => t.transactionType === 'BUY').length;
+  const sells = recentInsiders.filter((t) => t.transactionType === 'SELL').length;
+  const stance = computeInstitutionalStance(institutions);
+  const shortInt = getShortInterest(ticker);
+  const marketScreenerUrl = `https://www.marketscreener.com/search/?q=${encodeURIComponent(companyName)}`;
+
+  return (
+    <div className="card p-4 lg:col-start-1">
+      <div className="mb-3 flex items-center gap-2">
+        <Users className="h-4 w-4 text-ink-400" />
+        <h4 className="text-xs font-medium uppercase tracking-wider text-ink-400">Institutional Signals</h4>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <div className="rounded-lg bg-ink-800/50 p-3">
+          <p className="text-2xs text-ink-500">Insider activity ({INSIDER_LOOKBACK_DAYS}d)</p>
+          <p className="mt-1 font-mono text-sm font-bold">
+            <span className="text-bull-400">
+              {buys} buy{buys !== 1 ? 's' : ''}
+            </span>
+            <span className="text-ink-500"> · </span>
+            <span className="text-bear-400">
+              {sells} sell{sells !== 1 ? 's' : ''}
+            </span>
+          </p>
+        </div>
+        <div className="rounded-lg bg-ink-800/50 p-3">
+          <p className="text-2xs text-ink-500">Institutional trend</p>
+          <span
+            className={`mt-1 inline-flex items-center rounded-full border px-2 py-0.5 text-2xs font-semibold ${STANCE_COLOR[stance]}`}
+          >
+            {STANCE_LABEL[stance]}
+          </span>
+        </div>
+      </div>
+
+      {shortInt && (
+        <p className="mt-2 text-2xs text-ink-500">
+          Short interest <span className="font-mono text-ink-300">{shortInt.shortInterestPct.toFixed(1)}%</span> of float
+          (sample data)
+        </p>
+      )}
+
+      <div className="mt-3 border-t border-ink-700/40 pt-3">
+        <p className="text-2xs text-ink-500">
+          Analyst consensus data for European stocks requires a paid data subscription.
+        </p>
+        <a
+          href={marketScreenerUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="mt-1.5 inline-flex items-center gap-1 text-2xs font-medium text-teal-300 hover:text-teal-200"
+        >
+          View on MarketScreener <ExternalLink className="h-3 w-3" />
+        </a>
+      </div>
+    </div>
+  );
+}
 
 const SENTIMENT_BADGE_CLASS: Record<MarketSentimentLabel, string> = {
   Bullish: 'text-bull-400 bg-bull-500/15 border-bull-500/30',
@@ -324,9 +418,17 @@ export function TickerDetailDrawer({
             </div>
           )}
 
-          {/* Analyst Consensus — moved directly after the summary cards above, before Technical
-              Analysis, per spec */}
-          {effectiveTechnicals?.analyst && <AnalystSection analyst={effectiveTechnicals.analyst} price={effectiveTechnicals.price} />}
+          {/* Analyst Consensus (US) / Institutional Signals (EU) — moved directly after the
+              summary cards above, before Technical Analysis, per spec. Real analyst consensus
+              data has no free source for European tickers (see InstitutionalSignalsSection
+              above), so EU always gets the honest substitute rather than a silent gap. */}
+          {result.market === 'US' ? (
+            effectiveTechnicals?.analyst && (
+              <AnalystSection analyst={effectiveTechnicals.analyst} price={effectiveTechnicals.price} />
+            )
+          ) : (
+            <InstitutionalSignalsSection ticker={result.ticker} companyName={result.name} insiders={insiders} institutions={institutions} />
+          )}
 
           {/* Earnings date */}
           {earnings && daysToEarn !== null && daysToEarn > 0 && (
