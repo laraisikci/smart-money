@@ -11,6 +11,7 @@ import type {
   SearchResult,
   AnalyzeResponse,
   AnalyzeTarget,
+  OptionActivity,
 } from '@/types';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8787';
@@ -74,8 +75,19 @@ export interface TechnicalsResponse {
   data: TechnicalIndicators;
 }
 
+export interface BulkTechnicalsResponse {
+  data: Record<string, TechnicalIndicators>;
+  generatedAt: string;
+}
+
 export interface SearchResponse {
   data: SearchResult[];
+}
+
+export interface OptionsFlowResponse {
+  data: OptionActivity[];
+  generatedAt: string;
+  scannedTickers: string[];
 }
 
 export const api = {
@@ -89,6 +101,10 @@ export const api = {
   macro: () => getJson<MacroResponse>('/api/macro'),
   technicalsForTicker: (ticker: string) =>
     getJson<TechnicalsResponse>(`/api/technicals/${encodeURIComponent(ticker)}`),
+  // Analyst-free core indicators for every tracked ticker at once — powers the Conviction tab's
+  // technical-breakdown cap and "Confirmed only" filter without a per-ticker round trip.
+  coreTechnicals: () => getJson<BulkTechnicalsResponse>('/api/technicals'),
+  optionsFlow: () => getJson<OptionsFlowResponse>('/api/options-flow'),
   search: (query: string) => getJson<SearchResponse>(`/api/search?q=${encodeURIComponent(query)}`),
   analyze: (result: AnalyzeTarget) =>
     getJson<AnalyzeResponse>(

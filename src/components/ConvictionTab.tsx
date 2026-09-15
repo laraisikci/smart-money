@@ -11,6 +11,7 @@ import type {
 } from '@/types';
 import { SECTORS } from '@/types';
 import { computeConviction, getSectorTopPick } from '@/lib/conviction';
+import { applyConvictionCap, evaluateSignalAlignment } from '@/lib/signalConflict';
 import { api } from '@/lib/api';
 import { useApi } from '@/lib/useApi';
 import { getEarningsDate, daysUntilEarnings } from '@/data/earnings';
@@ -27,10 +28,17 @@ const MARKET_FILTERS: { label: string; value: MarketFilter }[] = [
   { label: 'US Only', value: 'US' },
 ];
 
+type ConfirmationFilter = 'ALL' | 'CONFIRMED';
+const CONFIRMATION_FILTERS: { label: string; value: ConfirmationFilter }[] = [
+  { label: 'All', value: 'ALL' },
+  { label: 'Confirmed only', value: 'CONFIRMED' },
+];
+
 export function ConvictionTab() {
   const [selected, setSelected] = useState<ConvictionResult | null>(null);
   // Defaults to EU Only per how this app is actually used (Barcelona-based investing).
   const [marketFilter, setMarketFilter] = useState<MarketFilter>('EU');
+  const [confirmationFilter, setConfirmationFilter] = useState<ConfirmationFilter>('ALL');
   const insiders = useApi(api.insiders, 'insiders');
   const institutions = useApi(api.institutions, 'institutions');
   const polymarket = useApi(api.markets, 'markets');
@@ -38,6 +46,12 @@ export function ConvictionTab() {
   // Not part of `loading`/`error` below (those gate the main conviction lists) — the drawer's
   // Fear & Greed read and Market Sentiment badge just render without them until this lands.
   const macro = useApi(api.macro);
+  // Analyst-free technicals for the whole tracked universe — powers the technical-breakdown cap,
+  // the Signal Conflict badge, and the "Confirmed only" filter below. Also not part of
+  // `loading`/`error`: scores render with the un-capped total until this lands, same progressive-
+  // render philosophy as everything else on this tab, rather than blocking the whole list on it.
+  const coreTechnicals = useApi(api.coreTechnicals, 'technicals');
+  const coreTechByTicker = coreTechnicals.data?.data;
 
   const loading = insiders.loading || institutions.loading || polymarket.loading || news.loading;
   const error = insiders.error || institutions.error || polymarket.error || news.error;
@@ -127,10 +141,24 @@ export function ConvictionTab() {
     });
   }, [insiders.data, institutions.data, polymarket.data, allHeadlines, adhocInsiders, adhocInstitutions, adhocNews]);
 
-  const results = useMemo(
-    () => (marketFilter === 'ALL' ? allResults : allResults.filter((r) => r.market === marketFilter)),
-    [allResults, marketFilter],
-  );
+  // Applies the technical-breakdown cap and re-sorts, so a capped stock actually drops out of
+  // Top 3 / sector picks rather than just displaying a lower number while still ranking as if
+  // nothing changed. Left untouched (and unsorted-by-cap) for any ticker the bulk technicals
+  // scan hasn't covered yet — no false cap while that data is still loading.
+  const cappedResults = useMemo(() => {
+    if (!coreTechByTicker) return allResults;
+    return [...allResults]
+      .map((r) => ({ ...r, totalScore: applyConvictionCap(r.totalScore, coreTechByTicker[r.ticker]) }))
+      .sort((a, b) => b.totalScore - a.totalScore);
+  }, [allResults, coreTechByTicker]);
+
+  const results = useMemo(() => {
+    let list = marketFilter === 'ALL' ? cappedResults : cappedResults.filter((r) => r.market === marketFilter);
+    if (confirmationFilter === 'CONFIRMED') {
+      list = list.filter((r) => evaluateSignalAlignment(r, coreTechByTicker?.[r.ticker]).confirmed);
+    }
+    return list;
+  }, [cappedResults, marketFilter, confirmationFilter, coreTechByTicker]);
 
   async function handleSearchSelect(result: SearchResult) {
     setSearchError(null);
@@ -145,7 +173,7 @@ export function ConvictionTab() {
       // /api/technicals/:ticker and /api/news/:ticker, so a tracked ticker with no active
       // conviction signal just gets a zero-score placeholder result and opens exactly like any
       // other tracked ticker — no ad-hoc fetch needed at all.
-      const existing = allResults.find((r) => r.ticker === result.symbol);
+      const existing = cappedResults.find((r) => r.ticker === result.symbol);
       setSelected(
         existing ?? {
           ticker: result.symbol,
@@ -231,6 +259,20 @@ export function ConvictionTab() {
         ))}
       </div>
 
+      {/* Confirmed-only filter — smart money AND technicals bullish at once, a cleaner (if
+          shorter) list of genuine, technically-backed opportunities */}
+      <div className="flex gap-2 overflow-x-auto scrollbar-hide">
+        {CONFIRMATION_FILTERS.map((f) => (
+          <button
+            key={f.value}
+            onClick={() => setConfirmationFilter(f.value)}
+            className={`pill shrink-0 ${confirmationFilter === f.value ? 'pill-active' : 'pill-idle'}`}
+          >
+            {f.label}
+          </button>
+        ))}
+      </div>
+
       {/* Only shown before anything has landed at all — once the first results render below,
           they update in place as more sources arrive rather than being replaced by this again. */}
       {loading && allResults.length === 0 && <LoadingCards />}
@@ -264,6 +306,7 @@ export function ConvictionTab() {
                 headlines={displayNewsByTicker.get(r.ticker) ?? []}
                 institutions={institutionsByTicker.get(r.ticker) ?? []}
                 technicals={adhocAnalyses.get(r.ticker)?.technicals}
+                hasConflict={evaluateSignalAlignment(r, coreTechByTicker?.[r.ticker]).hasConflict}
                 onClick={() => setSelected(r)}
               />
             ))}
@@ -286,6 +329,7 @@ export function ConvictionTab() {
               headlines={displayNewsByTicker.get(r.ticker) ?? []}
               institutions={institutionsByTicker.get(r.ticker) ?? []}
               technicals={adhocAnalyses.get(r.ticker)?.technicals}
+              hasConflict={evaluateSignalAlignment(r, coreTechByTicker?.[r.ticker]).hasConflict}
               onClick={() => setSelected(r)}
             />
           ))}
@@ -309,6 +353,7 @@ export function ConvictionTab() {
                 headlines={displayNewsByTicker.get(pick.ticker) ?? []}
                 institutions={institutionsByTicker.get(pick.ticker) ?? []}
                 technicals={adhocAnalyses.get(pick.ticker)?.technicals}
+                hasConflict={evaluateSignalAlignment(pick, coreTechByTicker?.[pick.ticker]).hasConflict}
                 onClick={() => setSelected(pick)}
               />
             );
@@ -354,6 +399,17 @@ function EarningsBadge({ ticker }: { ticker: string }) {
 // Cards render an outer <div role="button"> rather than a native <button> so the watchlist star
 // (a real <button> of its own, with its own click handler) can nest inside without producing
 // invalid button-in-button markup.
+function SignalConflictBadge() {
+  return (
+    <span
+      title="Smart money bullish but price action disagrees — wait for technical confirmation before acting."
+      className="inline-flex items-center gap-1 rounded-full border border-warn-500/30 bg-warn-500/10 px-2 py-0.5 text-2xs font-medium text-warn-300"
+    >
+      ⚠️ Signal conflict
+    </span>
+  );
+}
+
 function ConvictionCard({
   result,
   rank,
@@ -361,6 +417,7 @@ function ConvictionCard({
   headlines,
   institutions,
   technicals,
+  hasConflict,
   onClick,
 }: {
   result: ConvictionResult;
@@ -369,6 +426,7 @@ function ConvictionCard({
   headlines: NewsHeadline[];
   institutions: InstitutionalPosition[];
   technicals?: TechnicalIndicators | null;
+  hasConflict?: boolean;
   onClick: () => void;
 }) {
   return (
@@ -424,9 +482,10 @@ function ConvictionCard({
         </span>
       </div>
 
-      {/* Earnings badge */}
-      <div className="mt-2">
+      {/* Earnings badge + signal conflict warning */}
+      <div className="mt-2 flex flex-wrap gap-1.5">
         <EarningsBadge ticker={result.ticker} />
+        {hasConflict && <SignalConflictBadge />}
       </div>
 
       {/* Signal breakdown */}
@@ -451,6 +510,7 @@ function SectorRow({
   headlines,
   institutions,
   technicals,
+  hasConflict,
   onClick,
 }: {
   sector: Sector;
@@ -458,6 +518,7 @@ function SectorRow({
   headlines: NewsHeadline[];
   institutions: InstitutionalPosition[];
   technicals?: TechnicalIndicators | null;
+  hasConflict?: boolean;
   onClick: () => void;
 }) {
   return (
@@ -481,8 +542,9 @@ function SectorRow({
             <MarketTag market={result.market} currency={result.currency} />
           </div>
           <p className="truncate text-2xs text-ink-500">{result.name}</p>
-          <div className="mt-1">
+          <div className="mt-1 flex flex-wrap items-center gap-1.5">
             <SentimentBadge headlines={headlines} />
+            {hasConflict && <SignalConflictBadge />}
           </div>
         </div>
       </div>

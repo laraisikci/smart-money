@@ -123,3 +123,21 @@ export interface TechnicalIndicators {
   analyst: AnalystRating | null;
   asOf: string;
 }
+
+// Raw, per-contract options activity — CBOE's free delayed-quotes endpoint, US-listed only (see
+// routes/optionsFlow.ts for why EU tickers never reach this: too many of our short EU codes
+// collide with unrelated US tickers to risk it). No sweep/multi-exchange-routing detection here —
+// that needs tick-level trade data no free source provides; "unusual" is a volume-vs-open-
+// interest heuristic, computed and interpreted client-side.
+export interface OptionActivity {
+  ticker: string;
+  companyName: string;
+  type: 'CALL' | 'PUT';
+  strike: number;
+  expiry: string;
+  volume: number;
+  openInterest: number;
+  lastPrice: number;
+  iv: number | null;
+  currentPrice: number;
+}

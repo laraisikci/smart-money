@@ -4,6 +4,7 @@ import { aggregateSentiment, recentHeadlines } from './newsSentiment';
 import { fearGreedZone } from './fearGreed';
 import { computeMarketSentiment } from './marketSentiment';
 import { recommendationLabel } from './analystLabel';
+import { smartMoneyDirection, technicalsVerdict } from './signalConflict';
 
 export type FullAnalysisVerdict = 'Bullish' | 'Bearish' | 'Mixed';
 
@@ -24,21 +25,26 @@ function smartMoneyClause(result: ConvictionResult): Clause | null {
   if (!insider && !institution) return null;
 
   const parts: string[] = [];
-  let scoreSum = 0;
-  let count = 0;
-  if (insider) {
-    parts.push(`insiders show ${insider.detail}`);
-    scoreSum += insider.score;
-    count++;
-  }
-  if (institution) {
-    parts.push(`institutional filings show ${institution.detail}`);
-    scoreSum += institution.score;
-    count++;
-  }
-  const avg = scoreSum / count;
-  const direction: Direction = avg >= 55 ? 'Bullish' : avg <= 45 ? 'Bearish' : 'Neutral';
+  if (insider) parts.push(`insiders show ${insider.detail}`);
+  if (institution) parts.push(`institutional filings show ${institution.detail}`);
+  // Shared with the Conviction tab's technical-breakdown cap and Signal Conflict badge, so this
+  // paragraph's read of "smart money" never disagrees with what the card itself is flagging.
+  const direction = smartMoneyDirection(result) ?? 'Neutral';
   return { text: `Smart money: ${parts.join(', and ')}.`, direction };
+}
+
+// The specific case this whole feature is about: insiders/institutions bullish, but price action
+// itself reads bearish. Addressed head-on rather than left as two clauses the reader has to
+// reconcile themselves — "Signals conflict" from the generic tally below isn't enough here.
+function signalConflictClause(result: ConvictionResult, technicals: TechnicalIndicators | null): Clause | null {
+  if (smartMoneyDirection(result) !== 'Bullish' || technicalsVerdict(technicals) !== 'Bearish') return null;
+  return {
+    text:
+      'Insiders and institutions are bullish on this stock, but technical indicators show bearish price action. ' +
+      'This could mean the smart money is early — the thesis may be correct but timing is unfavorable. A more ' +
+      'cautious approach would be to wait for price to reclaim the SMA50 before entering.',
+    direction: 'Neutral',
+  };
 }
 
 function analystDirection(rating: AnalystRating): Direction {
@@ -132,6 +138,9 @@ export function buildFullAnalysis(
 
   const smartMoney = smartMoneyClause(result);
   if (smartMoney) clauses.push(smartMoney);
+
+  const conflict = signalConflictClause(result, technicals);
+  if (conflict) clauses.push(conflict);
 
   if (technicals) {
     const reasoning = reasonAboutTechnicals(technicals);

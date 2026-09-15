@@ -253,3 +253,22 @@ export interface WatchlistEntry {
   addedAt: string;
   snapshot: WatchlistSnapshot;
 }
+
+// Raw, per-contract options activity. US-listed only — see server/routes/optionsFlow.ts for why
+// EU tickers never reach this (short EU codes collide with unrelated US tickers, e.g. our "DTE"
+// is Deutsche Telekom but the real US ticker DTE is DTE Energy Co). "Unusual" here is a real,
+// derivable volume-vs-open-interest heuristic — not sweep/multi-exchange detection, which needs
+// tick-level trade data no free source provides.
+export interface OptionActivity {
+  ticker: string;
+  companyName: string;
+  type: 'CALL' | 'PUT';
+  strike: number;
+  expiry: string;
+  volume: number;
+  openInterest: number;
+  lastPrice: number;
+  iv: number | null;
+  currentPrice: number;
+  sample?: boolean; // true only for the clearly-labeled EU sample-data fallback
+}

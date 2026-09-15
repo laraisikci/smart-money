@@ -10,6 +10,7 @@ import { newsRouter } from './routes/news.js';
 import { macroRouter } from './routes/macro.js';
 import { technicalsRouter } from './routes/technicals.js';
 import { searchRouter } from './routes/search.js';
+import { optionsFlowRouter } from './routes/optionsFlow.js';
 import { prewarmCaches } from './lib/prewarm.js';
 
 const PORT = Number(process.env.PORT ?? 8787);
@@ -29,6 +30,7 @@ app.use('/api/news', newsRouter());
 app.use('/api/macro', macroRouter());
 app.use('/api/technicals', technicalsRouter());
 app.use('/api/search', searchRouter());
+app.use('/api/options-flow', optionsFlowRouter());
 
 // Bind explicitly to 0.0.0.0 — omitting the host can resolve to an IPv6-only (`::`) socket
 // depending on the container's networking, which Railway's health-check prober can't reach.

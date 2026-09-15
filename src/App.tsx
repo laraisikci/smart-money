@@ -1,21 +1,24 @@
 import { useState } from 'react';
-import { Activity, UserCircle2, Building2, HeartPulse, BarChart3, Star } from 'lucide-react';
+import { Activity, UserCircle2, Building2, HeartPulse, Waves, Star } from 'lucide-react';
 import { ConvictionTab } from '@/components/ConvictionTab';
 import { InsidersTab } from '@/components/InsidersTab';
 import { InstitutionsTab } from '@/components/InstitutionsTab';
 import { PulseTab } from '@/components/PulseTab';
-import { PolymarketTab } from '@/components/PolymarketTab';
+import { FlowTab } from '@/components/FlowTab';
 import { WatchlistTab } from '@/components/WatchlistTab';
 import { DataStatus } from '@/components/DataStatus';
 
-type TabId = 'conviction' | 'insiders' | 'institutions' | 'pulse' | 'polymarket' | 'watchlist';
+type TabId = 'conviction' | 'insiders' | 'institutions' | 'pulse' | 'flow' | 'watchlist';
 
+// "Flow" replaces the old Markets/Polymarket tab entirely. The 🌊 emoji the feature was specced
+// with doesn't fit this app's icon-component nav pattern (every other tab is a lucide icon,
+// sized/colored via className) — lucide's Waves icon is the direct visual equivalent.
 const TABS: { id: TabId; label: string; icon: typeof Activity }[] = [
   { id: 'conviction', label: 'Conviction', icon: Activity },
   { id: 'insiders', label: 'Insiders', icon: UserCircle2 },
   { id: 'institutions', label: 'Institutions', icon: Building2 },
   { id: 'pulse', label: 'Pulse', icon: HeartPulse },
-  { id: 'polymarket', label: 'Markets', icon: BarChart3 },
+  { id: 'flow', label: 'Flow', icon: Waves },
   { id: 'watchlist', label: 'Watchlist', icon: Star },
 ];
 
@@ -83,7 +86,7 @@ function App() {
           {activeTab === 'insiders' && <InsidersTab />}
           {activeTab === 'institutions' && <InstitutionsTab />}
           {activeTab === 'pulse' && <PulseTab />}
-          {activeTab === 'polymarket' && <PolymarketTab />}
+          {activeTab === 'flow' && <FlowTab />}
           {activeTab === 'watchlist' && <WatchlistTab />}
         </main>
 
