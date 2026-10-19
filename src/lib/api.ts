@@ -28,6 +28,10 @@ export interface InsidersResponse {
   data: InsiderTrade[];
   generatedAt: string;
   coverage: { resolved: string[]; unresolved: string[] };
+  // Per-source status for the EU side (absent on a backend that predates AMF PDMR support).
+  euCoverage?: {
+    amf: { ok: boolean; filingsListed: number; filingsMatched: number; trades: number; error?: string };
+  };
 }
 
 export interface InstitutionsResponse {

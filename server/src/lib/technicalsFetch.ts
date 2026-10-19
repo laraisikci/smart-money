@@ -76,6 +76,7 @@ async function computeCoreForSymbol(yahooSymbol: string): Promise<CoreTechnicals
     sma50: roundOrNull(sma(closes, 50)),
     sma125: roundOrNull(sma(closes, 125)),
     sma200: roundOrNull(sma(closes, 200)),
+    high52w: highs.length > 0 ? round(Math.max(...highs.slice(-252))) : null,
     ema20: roundOrNull(ema(closes, 20)),
     ema50: roundOrNull(ema(closes, 50)),
     ema200: roundOrNull(ema(closes, 200)),

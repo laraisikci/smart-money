@@ -5,6 +5,7 @@ import { api } from '@/lib/api';
 import { useApi } from '@/lib/useApi';
 import { computeConviction } from '@/lib/conviction';
 import { computeSectorPulse, type SectorPulse, type SectorPulseSignal } from '@/lib/macroSectors';
+import { ageDays, levelFor, LEVEL_CLASS, type FreshnessLevel } from '@/lib/freshness';
 import { fearGreedZone, FEAR_GREED_ZONE_COLOR, type FearGreedZone } from '@/lib/fearGreed';
 import { MarketTag, SentimentBadge, LoadingCards, ErrorCard } from '@/components/ui';
 import { TickerDetailDrawer } from '@/components/TickerDetailDrawer';
@@ -83,13 +84,34 @@ function formatAsOf(indicator: MacroIndicator): string {
   return new Date(indicator.asOf).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
+// Monthly series (inflation) are measured from the end of the period they describe; the rest are
+// daily and get a few days of slack for weekends and holidays.
+function dataAgeDays(indicator: MacroIndicator): number {
+  if (indicator.id === 'inflation') {
+    const [y, m] = indicator.asOf.split('-').map(Number);
+    return ageDays(new Date(Date.UTC(y, m ?? 1, 0))); // last day of that month
+  }
+  return ageDays(indicator.asOf);
+}
+
+function staleness(indicator: MacroIndicator): { level: FreshnessLevel; days: number } {
+  const days = dataAgeDays(indicator);
+  return { level: indicator.id === 'inflation' ? levelFor(days, 60, 90) : levelFor(days, 5, 14), days };
+}
+
+// One-day VIX moves above this override the "moderate volatility" read — the absolute level can
+// look benign right after a violent jump.
+const VIX_SPIKE_PCT = 20;
+
 function MacroCard({ indicator }: { indicator: MacroIndicator }) {
   const good = indicator.goodForMarkets;
   const changeColor = good === null ? 'text-ink-400' : good ? 'text-bull-400' : 'text-bear-400';
   const ChangeIcon = indicator.change > 0 ? TrendingUp : indicator.change < 0 ? TrendingDown : Minus;
+  const { level, days } = staleness(indicator);
+  const vixSpike = indicator.id === 'vix' && (indicator.changePercent ?? 0) > VIX_SPIKE_PCT;
 
   return (
-    <div className="card animate-fade-in-up p-3.5">
+    <div className={`card animate-fade-in-up p-3.5 ${vixSpike ? 'border-warn-500/40' : ''}`}>
       <p className="text-2xs font-medium uppercase tracking-wider text-ink-400">{indicator.label}</p>
       <div className="mt-1.5 flex items-baseline justify-between gap-2">
         <span className="font-mono text-xl font-bold text-ink-50">{formatIndicatorValue(indicator)}</span>
@@ -98,8 +120,23 @@ function MacroCard({ indicator }: { indicator: MacroIndicator }) {
           {formatChangeLabel(indicator)}
         </span>
       </div>
-      <p className="mt-2 text-2xs leading-snug text-ink-400">{indicator.interpretation}</p>
-      <p className="mt-1.5 text-2xs text-ink-600">as of {formatAsOf(indicator)}</p>
+      {indicator.id === 'vix' && indicator.changePercent !== null && (
+        <p className={`mt-1 font-mono text-2xs ${vixSpike ? 'font-semibold text-warn-300' : 'text-ink-500'}`}>
+          Day-over-day {indicator.changePercent > 0 ? '+' : ''}
+          {indicator.changePercent.toFixed(1)}% (from {indicator.previousValue.toFixed(2)})
+        </p>
+      )}
+      <p className={`mt-2 text-2xs leading-snug ${vixSpike ? 'font-medium text-warn-300' : 'text-ink-400'}`}>
+        {vixSpike ? 'Volatility spike — elevated risk regardless of absolute level' : indicator.interpretation}
+      </p>
+      <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+        <p className="text-2xs text-ink-600">as of {formatAsOf(indicator)}</p>
+        {level !== 'fresh' && (
+          <span className={`rounded-full border px-1.5 py-0.5 text-2xs font-semibold ${LEVEL_CLASS[level]}`}>
+            {level === 'red' ? 'Stale data' : `${Math.round(days)} days old`}
+          </span>
+        )}
+      </div>
     </div>
   );
 }
@@ -187,6 +224,7 @@ export function PulseTab() {
   const institutions = useApi(api.institutions, 'institutions');
   const polymarket = useApi(api.markets, 'markets');
   const news = useApi(api.news, 'news');
+  const coreTechnicals = useApi(api.coreTechnicals, 'technicals');
 
   const newsByTicker = useMemo(() => {
     const map = new Map<string, NewsHeadline[]>();
@@ -207,8 +245,9 @@ export function PulseTab() {
       institutions: institutions.data?.data ?? [],
       polymarket: polymarket.data?.data ?? [],
       news: allHeadlines,
+      technicals: coreTechnicals.data?.data,
     });
-  }, [insiders.data, institutions.data, polymarket.data, allHeadlines]);
+  }, [insiders.data, institutions.data, polymarket.data, allHeadlines, coreTechnicals.data]);
 
   const sectorPulses = useMemo(
     () => (macro.data ? computeSectorPulse(macro.data.data) : []),
@@ -270,7 +309,7 @@ export function PulseTab() {
             Sector Rotation Signal
           </p>
         </div>
-        {macro.loading && <GridSkeleton count={8} height="h-20" desktopCols={4} />}
+        {macro.loading && <GridSkeleton count={9} height="h-20" desktopCols={4} />}
         {macro.data && (
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             {sectorPulses.map((p) => (

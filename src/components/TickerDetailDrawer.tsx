@@ -29,7 +29,7 @@ import { getTickerMeta } from '@/data/tickers';
 import { SignalIcons, ActionBadge, MarketTag, FundAvatar } from '@/components/ui';
 import { WatchlistStarButton } from '@/components/WatchlistStar';
 import { FUND_MAP } from '@/data/funds';
-import { formatCurrency, formatShares, formatDate, timeAgo, daysAgo } from '@/lib/format';
+import { formatCurrency, formatMoney, priceText, formatShares, formatDate, timeAgo, daysAgo } from '@/lib/format';
 import { SENTIMENT_DIRECTION } from '@/lib/newsSentiment';
 import {
   reasonAboutTechnicals,
@@ -44,6 +44,7 @@ import { computeMarketSentiment, type MarketSentimentLabel } from '@/lib/marketS
 import { recommendationLabel, recommendationLean } from '@/lib/analystLabel';
 import { computeInstitutionalStance } from '@/lib/watchlistSnapshot';
 import { api } from '@/lib/api';
+import type { ScoreHistoryInfo } from '@/lib/scoreHistory';
 
 const INSIDER_LOOKBACK_DAYS = 90;
 
@@ -211,6 +212,57 @@ function zoneColor(zone: Zone): string {
   return 'text-warn-400';
 }
 
+function ScoreSparkline({ history, current }: { history: ScoreHistoryInfo; current: number }) {
+  const { series } = history;
+  const fmtChange = (v: number | null) =>
+    v == null ? (
+      <span className="text-ink-600">n/a</span>
+    ) : (
+      <span className={`font-mono font-semibold ${v > 0 ? 'text-bull-400' : v < 0 ? 'text-bear-400' : 'text-ink-500'}`}>
+        {v > 0 ? '+' : ''}
+        {v}
+      </span>
+    );
+  const W = 120;
+  const H = 32;
+  const points =
+    series.length >= 2
+      ? series
+          .map((p, i) => {
+            const x = (i / (series.length - 1)) * W;
+            const y = H - (Math.max(0, Math.min(100, p.score)) / 100) * (H - 4) - 2;
+            return `${x.toFixed(1)},${y.toFixed(1)}`;
+          })
+          .join(' ')
+      : null;
+  return (
+    <div className="card p-4 lg:col-start-1">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-xs text-ink-400">Score trend (last 30 days)</p>
+          <p className="mt-1 text-2xs text-ink-500">
+            7-day {fmtChange(history.change7d)} · 30-day {fmtChange(history.change30d)}
+          </p>
+          <p className="mt-0.5 text-2xs text-ink-600">
+            {history.trackingStartedHere ? 'Tracking since' : 'First flagged'}{' '}
+            {new Date(`${history.firstFlagged}T00:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+          </p>
+        </div>
+        {points ? (
+          <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} className="shrink-0" aria-label="Conviction score over the last 30 days">
+            <polyline points={points} fill="none" stroke="#2dd4bf" strokeWidth="1.75" strokeLinejoin="round" strokeLinecap="round" />
+          </svg>
+        ) : (
+          <p className="max-w-[9rem] text-right text-2xs text-ink-600">
+            Trend appears as daily scores are recorded ({series.length} day{series.length === 1 ? '' : 's'} so far)
+          </p>
+        )}
+      </div>
+      <p className="sr-only">Current score {current}</p>
+    </div>
+  );
+}
+
 function IndicatorTile({
   label,
   value,
@@ -249,6 +301,9 @@ interface TickerDetailDrawerProps {
   // Macro indicators (for the Fear & Greed contrarian read and combined Market Sentiment score).
   // Optional/defaulted so existing callers don't all need updating at once.
   macro?: MacroIndicator[];
+  // Locally-recorded daily conviction history (see lib/scoreHistory.ts) — absent where a caller
+  // (e.g. the Pulse tab) doesn't track it.
+  scoreHistory?: ScoreHistoryInfo;
 }
 
 export function TickerDetailDrawer({
@@ -261,6 +316,7 @@ export function TickerDetailDrawer({
   technicalsOverride,
   skipNewsFetch,
   macro = [],
+  scoreHistory,
 }: TickerDetailDrawerProps) {
   useEffect(() => {
     if (result) {
@@ -405,6 +461,8 @@ export function TickerDetailDrawer({
             <div className="font-mono text-3xl font-bold text-teal-300">{result.totalScore}</div>
           </div>
 
+          {scoreHistory && <ScoreSparkline history={scoreHistory} current={result.totalScore} />}
+
           {/* Market Sentiment — combined news (30%) + Fear & Greed (25%) + analyst consensus
               (30%) + options put/call ratio (15%), re-normalized over whatever's actually available */}
           {marketSentiment && (
@@ -451,7 +509,9 @@ export function TickerDetailDrawer({
                 <h4 className="text-xs font-medium uppercase tracking-wider text-ink-400">
                   Short Interest
                 </h4>
-                <span className="ml-auto text-2xs text-ink-600">sample data</span>
+                <span className="ml-auto rounded-full border border-warn-500/30 bg-warn-500/10 px-2 py-0.5 text-2xs font-medium text-warn-300">
+                  Sample — not scored
+                </span>
               </div>
               <div className="flex items-center justify-between">
                 <div>
@@ -653,10 +713,10 @@ export function TickerDetailDrawer({
                     </div>
                     <div className="mt-2 flex items-center justify-between border-t border-ink-700/40 pt-2">
                       <span className="font-mono text-2xs text-ink-400">
-                        {formatShares(t.shares)} @ ${t.price.toFixed(2)}
+                        {formatShares(t.shares)} @ {priceText(t.price, t.currency)}
                       </span>
                       <span className="font-mono text-xs font-semibold text-ink-100">
-                        {formatCurrency(t.value)}
+                        {formatMoney(t.value, t.currency)}
                       </span>
                     </div>
                   </div>

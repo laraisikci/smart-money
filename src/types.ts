@@ -23,7 +23,7 @@ export type Sector =
     'RealEstate',
   ];
 
-export type SignalType = 'insider' | 'institution' | 'polymarket' | 'news';
+export type SignalType = 'insider' | 'institution' | 'technicals' | 'news' | 'polymarket';
 
 // Currency of each ticker's primary listing exchange. Nearly all Eurozone constituents (DAX,
 // CAC 40, IBEX 35, AEX, and most of EuroStoxx 50) trade in EUR; the rest reflect each company's
@@ -40,6 +40,12 @@ export interface TickerMeta {
 }
 
 export interface InsiderTrade {
+  // Hard rule (see computeConviction): anything flagged sample never contributes to a score.
+  sample?: boolean;
+  // Where the trade came from, and what currency `price`/`value` are in (SEC Form 4 is USD;
+  // AMF France PDMR filings are mostly EUR).
+  source?: string;
+  currency?: string;
   id: string;
   ticker: string;
   insiderName: string;
@@ -59,6 +65,7 @@ export type InstitutionalAction =
   | 'exited';
 
 export interface InstitutionalPosition {
+  sample?: boolean;
   id: string;
   fundName: string;
   fundSlug: string;
@@ -68,6 +75,10 @@ export interface InstitutionalPosition {
   shares: number;
   marketValue: number;
   pctChange: number;
+  // Size of the prior-quarter position and the dollar size of this quarter's change (see
+  // server/institutionFetch.ts). Optional for a backend that predates them.
+  priorValue?: number;
+  valueChange?: number;
   filingDate: string;
   quarter: string;
 }
@@ -75,6 +86,7 @@ export interface InstitutionalPosition {
 export type Sentiment = 'Positive' | 'Negative' | 'Neutral';
 
 export interface NewsHeadline {
+  sample?: boolean;
   ticker: string;
   title: string;
   url: string;
@@ -110,6 +122,9 @@ export interface TechnicalIndicators {
   sma50: number | null;
   sma125: number | null;
   sma200: number | null;
+  // Highest daily high over the last ~252 trading days (52 weeks). May be absent from a backend
+  // that hasn't deployed it yet, hence the loose null checks wherever it's read.
+  high52w?: number | null;
   ema20: number | null;
   ema50: number | null;
   ema200: number | null;
@@ -157,6 +172,7 @@ export interface OfficialSourceLink {
 }
 
 export interface PolymarketMarket {
+  sample?: boolean;
   id: string;
   question: string;
   category: string;
@@ -252,6 +268,9 @@ export interface WatchlistEntry {
   sector: Sector;
   addedAt: string;
   snapshot: WatchlistSnapshot;
+  // Set for tickers added by import / shared link: there was no live signal state to capture at
+  // that moment, so the Watchlist tab takes the baseline snapshot the first time it has data.
+  snapshotPending?: boolean;
 }
 
 // Raw, per-contract options activity. US-listed only — see server/routes/optionsFlow.ts for why

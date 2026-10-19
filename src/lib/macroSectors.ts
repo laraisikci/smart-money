@@ -18,6 +18,7 @@ const PULSE_SECTORS: { sector: Sector; label: string }[] = [
   { sector: 'Energy', label: 'Energy' },
   { sector: 'Healthcare', label: 'Healthcare' },
   { sector: 'Industrials', label: 'Industrials' },
+  { sector: 'Materials', label: 'Materials' },
   { sector: 'Consumer', label: 'Consumer Staples' },
   { sector: 'RealEstate', label: 'Real Estate' },
   { sector: 'Utilities', label: 'Utilities' },
@@ -91,6 +92,14 @@ export function computeSectorPulse(indicators: MacroIndicator[]): SectorPulse[] 
   push(contributionsBySector.Industrials, eurWeak, 2, 'Weaker euro boosts overseas revenue when converted back to EUR');
   push(contributionsBySector.Industrials, eurStrong, -1, 'Stronger euro weighs on overseas earnings translation');
   push(contributionsBySector.Industrials, oilRising, -1, 'Higher fuel costs raise transport and input costs');
+
+  // Materials (chemicals, specialty chemicals, mining): energy/feedstock-cost-sensitive and
+  // cyclical, with mostly euro-based cost bases and global (dollar) revenue.
+  push(contributionsBySector.Materials, oilRising, -2, 'Higher energy and feedstock costs squeeze chemical margins');
+  push(contributionsBySector.Materials, oilFalling, 1, 'Cheaper energy and feedstocks ease chemical input costs');
+  push(contributionsBySector.Materials, eurWeak, 1, 'Weaker euro lifts euro-reported earnings from dollar-priced global sales');
+  push(contributionsBySector.Materials, eurStrong, -1, 'Stronger euro erodes the competitiveness of euro-based producers');
+  push(contributionsBySector.Materials, highVix, -1, 'Cyclical demand worries grow when market volatility rises');
 
   push(contributionsBySector.Healthcare, highVix, 2, 'Defensive earnings attract investors in risk-off conditions');
   push(contributionsBySector.Healthcare, lowVix, -1, 'Risk-on markets favor cyclicals over defensives');

@@ -5,13 +5,15 @@ import { api } from '@/lib/api';
 import { useApi } from '@/lib/useApi';
 import type { InstitutionalPosition, NewsHeadline } from '@/types';
 import { computeConviction } from '@/lib/conviction';
-import { formatCurrency, formatShares, formatPct, timeAgo } from '@/lib/format';
-import { ActionBadge, FundAvatar, MarketTag, LoadingCards, ErrorCard } from '@/components/ui';
+import { formatCurrency, formatShares, timeAgo } from '@/lib/format';
+import { institutionChange, formatChange, changeNote } from '@/lib/institutionChange';
+import { quarterEnd, ageDays, levelFor, THIRTEEN_F_AMBER_DAYS, THIRTEEN_F_RED_DAYS } from '@/lib/freshness';
+import { ActionBadge, FundAvatar, MarketTag, LoadingCards, ErrorCard, FreshnessBadge, FailedBadge } from '@/components/ui';
 import { WatchlistStarButton } from '@/components/WatchlistStar';
 import { getTickerMeta } from '@/data/tickers';
 
 type FilterMode = 'all' | 'bullish';
-type SortKey = 'company' | 'fund' | 'action' | 'value' | 'date';
+type SortKey = 'company' | 'fund' | 'action' | 'value' | 'change' | 'date';
 type SortDirection = 'asc' | 'desc';
 
 function SortHeader({
@@ -49,13 +51,15 @@ function SortHeader({
 export function InstitutionsTab() {
   const [activeFund, setActiveFund] = useState<string>('ALL');
   const [filterMode, setFilterMode] = useState<FilterMode>('bullish');
-  const [sortKey, setSortKey] = useState<SortKey>('date');
+  // Dollar size of the change, not percentage — a % off a tiny base is noise.
+  const [sortKey, setSortKey] = useState<SortKey>('change');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const { data, loading, error, refetch } = useApi(api.institutions, 'institutions');
   const positions = useMemo(() => data?.data ?? [], [data]);
   const insidersData = useApi(api.insiders);
   const polymarketData = useApi(api.markets);
   const newsData = useApi(api.news);
+  const coreTechnicals = useApi(api.coreTechnicals, 'technicals');
 
   const newsByTicker = useMemo(() => {
     const map = new Map<string, NewsHeadline[]>();
@@ -71,9 +75,10 @@ export function InstitutionsTab() {
       institutions: positions,
       polymarket: polymarketData.data?.data ?? [],
       news: Array.from(newsByTicker.values()).flat(),
+      technicals: coreTechnicals.data?.data,
     });
     return new Map(results.map((r) => [r.ticker, r.totalScore]));
-  }, [insidersData.data, positions, polymarketData.data, newsByTicker]);
+  }, [insidersData.data, positions, polymarketData.data, newsByTicker, coreTechnicals.data]);
 
   function handleSort(key: SortKey) {
     if (key === sortKey) {
@@ -92,12 +97,30 @@ export function InstitutionsTab() {
     if (filterMode === 'bullish') {
       list = list.filter((p) => p.action === 'new' || p.action === 'increased');
     }
-    return list.sort(
-      (a, b) => new Date(b.filingDate).getTime() - new Date(a.filingDate).getTime(),
-    );
+    return list.sort((a, b) => Math.abs(institutionChange(b).dollar) - Math.abs(institutionChange(a).dollar));
   }, [positions, activeFund, filterMode]);
 
-  // Desktop table only — the mobile card list always stays date-sorted (filtered's own order).
+  const latestQuarter = useMemo(() => {
+    const qs = positions.map((p) => p.quarter).filter((q) => quarterEnd(q));
+    qs.sort((a, b) => (quarterEnd(a)?.getTime() ?? 0) - (quarterEnd(b)?.getTime() ?? 0));
+    return qs[qs.length - 1] ?? null;
+  }, [positions]);
+
+  // Funds whose newest 13F is much older than everyone else's — a fund can "load" fine yet still be
+  // serving a filing from years ago, which a single header date would otherwise hide.
+  const staleFunds = useMemo(() => {
+    const latestByFund = new Map<string, { name: string; quarter: string; end: Date }>();
+    for (const p of positions) {
+      const end = quarterEnd(p.quarter);
+      if (!end) continue;
+      const cur = latestByFund.get(p.fundSlug);
+      if (!cur || end > cur.end) latestByFund.set(p.fundSlug, { name: p.fundName, quarter: p.quarter, end });
+    }
+    const newest = Math.max(0, ...Array.from(latestByFund.values()).map((f) => f.end.getTime()));
+    return Array.from(latestByFund.values()).filter((f) => newest - f.end.getTime() > 100 * 86_400_000);
+  }, [positions]);
+
+  // Desktop table only — the mobile card list stays sorted by dollar size of change (filtered's own order).
   const sortedForTable = useMemo(() => {
     const dir = sortDirection === 'asc' ? 1 : -1;
     return [...filtered].sort((a, b) => {
@@ -110,6 +133,8 @@ export function InstitutionsTab() {
           return dir * a.action.localeCompare(b.action);
         case 'value':
           return dir * (a.marketValue - b.marketValue);
+        case 'change':
+          return dir * (institutionChange(a).dollar - institutionChange(b).dollar);
         case 'date':
         default:
           return dir * (new Date(a.filingDate).getTime() - new Date(b.filingDate).getTime());
@@ -147,11 +172,35 @@ export function InstitutionsTab() {
         <h2 className="text-lg font-semibold text-ink-50">Institutions</h2>
       </div>
 
-      <div className="rounded-lg border border-teal-500/20 bg-teal-500/5 px-3 py-2">
+      <div className="space-y-2 rounded-lg border border-teal-500/20 bg-teal-500/5 px-3 py-2">
         <p className="text-2xs text-teal-300/80">
-          Live SEC EDGAR 13F data · holdings limited to companies in our tracked ticker list
-          {data && data.failedFunds.length > 0 && ` · couldn't load: ${data.failedFunds.join(', ')}`}
+          Live SEC EDGAR 13F data · holdings limited to companies in our tracked ticker list · sorted by dollar size of
+          the quarter's change
         </p>
+        {data && (
+          <div className="flex flex-wrap gap-1.5">
+            {latestQuarter && quarterEnd(latestQuarter) && (
+              <FreshnessBadge
+                label={`13F data: ${latestQuarter}`}
+                asOf={quarterEnd(latestQuarter) as Date}
+                amberDays={THIRTEEN_F_AMBER_DAYS}
+                redDays={THIRTEEN_F_RED_DAYS}
+              />
+            )}
+            {staleFunds.map((f) => (
+              <FreshnessBadge
+                key={f.name}
+                label={`${f.name}: 13F ${f.quarter}`}
+                asOf={f.end}
+                amberDays={THIRTEEN_F_AMBER_DAYS}
+                redDays={THIRTEEN_F_RED_DAYS}
+              />
+            ))}
+            {data.failedFunds.map((f) => (
+              <FailedBadge key={f} label={f} />
+            ))}
+          </div>
+        )}
       </div>
 
       {loading && <LoadingCards />}
@@ -258,7 +307,8 @@ export function InstitutionsTab() {
                 <SortHeader label="Company" sortKey="company" activeKey={sortKey} direction={sortDirection} onSort={handleSort} />
                 <SortHeader label="Fund" sortKey="fund" activeKey={sortKey} direction={sortDirection} onSort={handleSort} />
                 <SortHeader label="Action" sortKey="action" activeKey={sortKey} direction={sortDirection} onSort={handleSort} />
-                <SortHeader label="Value" sortKey="value" activeKey={sortKey} direction={sortDirection} onSort={handleSort} align="right" />
+                <SortHeader label="Position" sortKey="value" activeKey={sortKey} direction={sortDirection} onSort={handleSort} align="right" />
+                <SortHeader label="Change" sortKey="change" activeKey={sortKey} direction={sortDirection} onSort={handleSort} align="right" />
                 <SortHeader label="Date" sortKey="date" activeKey={sortKey} direction={sortDirection} onSort={handleSort} align="right" />
                 <th className="px-3 py-2.5" />
               </tr>
@@ -303,6 +353,7 @@ function PositionCard({
   const fund = FUND_MAP[pos.fundSlug];
   const meta = getTickerMeta(pos.ticker);
   const isBullish = pos.action === 'new' || pos.action === 'increased';
+  const change = institutionChange(pos);
 
   return (
     <div className="card animate-fade-in-up p-4 transition-all duration-200 hover:border-ink-600">
@@ -348,8 +399,9 @@ function PositionCard({
                 isBullish ? 'text-bull-400' : 'text-bear-400'
               }`}
             >
-              {formatPct(pos.pctChange)}
+              {formatChange(change)}
             </p>
+            {changeNote(change) && <p className="text-2xs text-ink-600">{changeNote(change)}</p>}
           </div>
         </div>
         <div className="flex items-center gap-1">
@@ -358,7 +410,14 @@ function PositionCard({
           ) : (
             <ArrowUpRight className="h-3.5 w-3.5 rotate-90 text-bear-400" />
           )}
-          <span className="text-2xs text-ink-500">{pos.quarter}</span>
+          {quarterEnd(pos.quarter) && (
+            <FreshnessBadge
+              label={`13F data: ${pos.quarter}`}
+              asOf={quarterEnd(pos.quarter) as Date}
+              amberDays={THIRTEEN_F_AMBER_DAYS}
+              redDays={THIRTEEN_F_RED_DAYS}
+            />
+          )}
         </div>
       </div>
     </div>
@@ -379,6 +438,15 @@ function InstitutionTableRow({
   const fund = FUND_MAP[pos.fundSlug];
   const meta = getTickerMeta(pos.ticker);
   const isBullish = pos.action === 'new' || pos.action === 'increased';
+  const change = institutionChange(pos);
+  const qEnd = quarterEnd(pos.quarter);
+  const rowAgeClass = qEnd
+    ? levelFor(ageDays(qEnd), THIRTEEN_F_AMBER_DAYS, THIRTEEN_F_RED_DAYS) === 'red'
+      ? 'text-bear-400'
+      : levelFor(ageDays(qEnd), THIRTEEN_F_AMBER_DAYS, THIRTEEN_F_RED_DAYS) === 'amber'
+        ? 'text-warn-400'
+        : 'text-ink-600'
+    : 'text-ink-600';
 
   return (
     <tr className="border-b border-ink-700/40 transition-colors last:border-0 hover:bg-ink-800/40">
@@ -400,9 +468,14 @@ function InstitutionTableRow({
       </td>
       <td className="px-3 py-3 text-right">
         <p className="font-mono text-xs font-semibold text-ink-100">{formatCurrency(pos.marketValue)}</p>
-        <p className={`text-2xs font-medium ${isBullish ? 'text-bull-400' : 'text-bear-400'}`}>
-          {formatPct(pos.pctChange)} · {formatShares(pos.shares)} sh
+        <p className="text-2xs text-ink-500">{formatShares(pos.shares)} sh</p>
+      </td>
+      <td className="px-3 py-3 text-right">
+        <p className={`font-mono text-xs font-semibold ${isBullish ? 'text-bull-400' : 'text-bear-400'}`}>
+          {formatChange(change)}
         </p>
+        {changeNote(change) && <p className="text-2xs text-ink-600">{changeNote(change)}</p>}
+        <p className={`mt-0.5 text-2xs font-medium ${rowAgeClass}`}>13F {pos.quarter}</p>
       </td>
       <td className="px-3 py-3 text-right text-2xs text-ink-500">{timeAgo(pos.filingDate)}</td>
       <td className="px-3 py-3 text-right">

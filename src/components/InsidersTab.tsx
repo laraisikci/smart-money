@@ -5,8 +5,8 @@ import { api } from '@/lib/api';
 import { useApi } from '@/lib/useApi';
 import { computeConviction } from '@/lib/conviction';
 import { getTickerMeta } from '@/data/tickers';
-import { formatCurrency, formatShares, timeAgo, daysAgo } from '@/lib/format';
-import { ActionBadge, MarketTag, SentimentBadge, LoadingCards, ErrorCard } from '@/components/ui';
+import { formatMoney, priceText, formatShares, timeAgo, daysAgo } from '@/lib/format';
+import { ActionBadge, MarketTag, SentimentBadge, LoadingCards, ErrorCard, FreshnessBadge, FailedBadge } from '@/components/ui';
 import { WatchlistStarButton } from '@/components/WatchlistStar';
 
 type SortKey = 'company' | 'insider' | 'action' | 'value' | 'date';
@@ -44,11 +44,21 @@ function SortHeader({
   );
 }
 
+// Amounts are in the trade's own currency (USD for SEC filings, EUR for EU PDMR), so the labels
+// stay currency-neutral. Default is "Any": EU PDMR trades are typically far smaller than the US
+// open-market buys the SEC pipeline already pre-filters, and a 100k floor would hide most of them.
 const THRESHOLDS = [
   { label: 'Any', value: 0 },
-  { label: '$100k+', value: 100_000 },
-  { label: '$500k+', value: 500_000 },
-  { label: '$1M+', value: 1_000_000 },
+  { label: '100k+', value: 100_000 },
+  { label: '500k+', value: 500_000 },
+  { label: '1M+', value: 1_000_000 },
+];
+
+type MarketFilter = 'ALL' | 'EU' | 'US';
+const MARKET_FILTERS: { label: string; value: MarketFilter }[] = [
+  { label: 'All', value: 'ALL' },
+  { label: 'EU Only', value: 'EU' },
+  { label: 'US Only', value: 'US' },
 ];
 
 // null = no cutoff ("Any"). 90 days is the default so stale filings (which shouldn't count
@@ -94,7 +104,9 @@ function EuropeanDisclosuresCard() {
 }
 
 export function InsidersTab() {
-  const [threshold, setThreshold] = useState(100_000);
+  const [threshold, setThreshold] = useState(0);
+  // Default to EU Only — this app is for a European equity investor.
+  const [marketFilter, setMarketFilter] = useState<MarketFilter>('EU');
   const [dateRangeDays, setDateRangeDays] = useState<number | null>(DEFAULT_DATE_RANGE_DAYS);
   const [sortKey, setSortKey] = useState<SortKey>('date');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
@@ -102,6 +114,7 @@ export function InsidersTab() {
   const newsData = useApi(api.news, 'news');
   const institutionsData = useApi(api.institutions);
   const polymarketData = useApi(api.markets);
+  const coreTechnicals = useApi(api.coreTechnicals, 'technicals');
 
   function handleSort(key: SortKey) {
     if (key === sortKey) {
@@ -136,17 +149,19 @@ export function InsidersTab() {
       institutions: institutionsData.data?.data ?? [],
       polymarket: polymarketData.data?.data ?? [],
       news: Array.from(newsByTicker.values()).flat(),
+      technicals: coreTechnicals.data?.data,
     });
     return new Map(results.map((r) => [r.ticker, r.totalScore]));
-  }, [data, institutionsData.data, polymarketData.data, newsByTicker]);
+  }, [data, institutionsData.data, polymarketData.data, newsByTicker, coreTechnicals.data]);
 
   const filtered = useMemo(() => {
     const trades = data?.data ?? [];
     return trades
+      .filter((t) => marketFilter === 'ALL' || t.market === marketFilter)
       .filter((t) => t.value >= threshold)
       .filter((t) => dateRangeDays === null || daysAgo(t.filingDate) <= dateRangeDays)
       .sort((a, b) => new Date(b.filingDate).getTime() - new Date(a.filingDate).getTime());
-  }, [data, threshold, dateRangeDays]);
+  }, [data, threshold, dateRangeDays, marketFilter]);
 
   // Distinguishes "nothing in the default 90-day window" from "no trades match your other
   // filters" — the former gets a specific, actionable message rather than a generic empty state.
@@ -181,7 +196,50 @@ export function InsidersTab() {
         <h2 className="text-lg font-semibold text-ink-50">Insider Trades</h2>
       </div>
 
-      <EuropeanDisclosuresCard />
+      {/* Market filter */}
+      <div className="flex gap-2 overflow-x-auto scrollbar-hide">
+        {MARKET_FILTERS.map((f) => (
+          <button
+            key={f.value}
+            onClick={() => setMarketFilter(f.value)}
+            className={`pill shrink-0 ${marketFilter === f.value ? 'pill-active' : 'pill-idle'}`}
+          >
+            {f.label}
+          </button>
+        ))}
+      </div>
+
+      {marketFilter !== 'US' && (
+        <div className="space-y-2 rounded-lg border border-teal-500/20 bg-teal-500/5 px-3 py-2.5">
+          <p className="text-2xs font-medium text-teal-200">
+            EU PDMR disclosures — French issuers, from the AMF's official BDIF register.
+          </p>
+          <p className="text-2xs leading-relaxed text-teal-300/70">
+            Each notification is parsed from its filed PDF (insider, role, buy/sell, price, volume; open-market
+            acquisitions and disposals only, €25k+). Germany (BaFin), Spain (CNMV), the Netherlands (AFM), Italy and the
+            UK aren't covered: their registers don't publish machine-readable data. SEC ADR filings can't fill the gap
+            — foreign private issuers like ASML, SAP, Roche or Airbus are exempt from Form 4, so they file none.
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {data?.euCoverage ? (
+              data.euCoverage.amf.ok ? (
+                <>
+                  <FreshnessBadge label="AMF France" asOf={data.generatedAt} amberDays={1} redDays={3} suffix="ago" />
+                  <span className="inline-flex items-center rounded-full border border-ink-700/60 bg-ink-800/60 px-2 py-0.5 text-2xs text-ink-400">
+                    {data.euCoverage.amf.trades} trades from {data.euCoverage.amf.filingsMatched} tracked-issuer filings
+                  </span>
+                </>
+              ) : (
+                <FailedBadge label="AMF France" />
+              )
+            ) : (
+              data && <FailedBadge label="AMF France (backend not updated)" />
+            )}
+          </div>
+        </div>
+      )}
+
+      {marketFilter !== 'US' && <EuropeanDisclosuresCard />}
 
       {/* Date range filter */}
       <div>
@@ -208,7 +266,7 @@ export function InsidersTab() {
       <div>
         <div className="mb-2 flex items-center gap-1.5">
           <Filter className="h-3.5 w-3.5 text-ink-400" />
-          <span className="text-xs font-medium text-ink-400">Min buy size</span>
+          <span className="text-xs font-medium text-ink-400">Min trade size</span>
         </div>
         <div className="flex gap-2 overflow-x-auto scrollbar-hide">
           {THRESHOLDS.map((t) => (
@@ -236,7 +294,9 @@ export function InsidersTab() {
             {dateRangeDays !== null && ` in the last ${dateRangeDays} days`}
             {' · '}
             <span className="text-ink-600">
-              {data.coverage.resolved.length} of {data.coverage.resolved.length + data.coverage.unresolved.length} tracked tickers have SEC filers
+              {marketFilter === 'EU'
+                ? 'EU: AMF PDMR (France) + any SEC Form 4 filers'
+                : `${data.coverage.resolved.length} of ${data.coverage.resolved.length + data.coverage.unresolved.length} tracked tickers have SEC filers`}
             </span>
           </p>
 
@@ -279,7 +339,7 @@ export function InsidersTab() {
                   />
                   <div className="text-right">
                     <div className="font-mono text-sm font-bold text-ink-50">
-                      {formatCurrency(trade.value)}
+                      {formatMoney(trade.value, trade.currency)}
                     </div>
                     <p className="text-2xs text-ink-500">{timeAgo(trade.filingDate)}</p>
                   </div>
@@ -298,7 +358,7 @@ export function InsidersTab() {
                   </div>
                   <div>
                     <p className="text-2xs text-ink-500">Price</p>
-                    <p className="font-mono text-xs text-ink-200">${trade.price.toFixed(2)}</p>
+                    <p className="font-mono text-xs text-ink-200">{priceText(trade.price, trade.currency)}</p>
                   </div>
                 </div>
                 <span className="text-2xs text-ink-500">{meta.sector}</span>
@@ -340,8 +400,9 @@ export function InsidersTab() {
           {filtered.length === 0 && emptyDueToDateRange && (
             <div className="py-12 text-center text-sm text-ink-400">
               <p>
-                No significant insider buys in the last 90 days above $50k from C-suite
-                executives.
+                {marketFilter === 'EU'
+                  ? 'No qualifying EU PDMR trades (€25k+ open-market buys or sells at tracked French issuers) in the last 90 days.'
+                  : 'No significant insider buys in the last 90 days above $50k from C-suite executives.'}
               </p>
               <p className="mt-2 text-xs text-ink-500">
                 Check back later, or{' '}
@@ -398,9 +459,9 @@ function InsiderTableRow({
         <ActionBadge action={trade.transactionType} />
       </td>
       <td className="px-3 py-3 text-right">
-        <p className="font-mono text-xs font-semibold text-ink-100">{formatCurrency(trade.value)}</p>
+        <p className="font-mono text-xs font-semibold text-ink-100">{formatMoney(trade.value, trade.currency)}</p>
         <p className="text-2xs text-ink-500">
-          {formatShares(trade.shares)} @ ${trade.price.toFixed(2)}
+          {formatShares(trade.shares)} @ {priceText(trade.price, trade.currency)}
         </p>
       </td>
       <td className="px-3 py-3 text-right text-2xs text-ink-500">{timeAgo(trade.filingDate)}</td>

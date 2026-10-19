@@ -117,6 +117,11 @@ export async function fetchFundPositionsForMatcher<T extends { symbol: string; n
     const prev = priorHoldings.get(ticker);
     let action: InstitutionalAction;
     let pctChange: number;
+    // Dollar size of the *trade*, valued at the current quarter's price — the change in shares ×
+    // price, so a price move on an unchanged holding doesn't read as buying or selling.
+    const pricePerShare = holding.shares > 0 ? holding.value / holding.shares : 0;
+    const priorValue = prev ? Math.round(prev.value) : 0;
+    const valueChange = prev ? Math.round((holding.shares - prev.shares) * pricePerShare) : Math.round(holding.value);
     if (!prev) {
       action = 'new';
       pctChange = 100;
@@ -138,6 +143,8 @@ export async function fetchFundPositionsForMatcher<T extends { symbol: string; n
       shares: holding.shares,
       marketValue: Math.round(holding.value),
       pctChange: Math.round(pctChange * 10) / 10,
+      priorValue,
+      valueChange,
       filingDate: current.filingDate,
       quarter,
     });
@@ -156,6 +163,8 @@ export async function fetchFundPositionsForMatcher<T extends { symbol: string; n
       shares: 0,
       marketValue: 0,
       pctChange: -100,
+      priorValue: Math.round(prevHolding.value),
+      valueChange: -Math.round(prevHolding.value),
       filingDate: current.filingDate,
       quarter,
     });

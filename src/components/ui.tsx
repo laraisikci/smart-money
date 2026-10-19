@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { TrendingUp, TrendingDown, Building2, BarChart3, AlertTriangle, Newspaper } from 'lucide-react';
+import { TrendingUp, TrendingDown, Building2, BarChart3, AlertTriangle, Newspaper, LineChart } from 'lucide-react';
 import type { SignalType, NewsHeadline } from '@/types';
 import { recentHeadlines, aggregateSentiment, AGGREGATE_BADGE } from '@/lib/newsSentiment';
+import { ageDays, ageLabel, levelFor, LEVEL_CLASS, type FreshnessLevel } from '@/lib/freshness';
 
 // The backend runs on Render's free tier, which spins the server down after ~15 minutes idle —
 // the first request after that has to both wake the dyno and rebuild an empty cache (the slowest
@@ -15,8 +16,9 @@ export const SIGNAL_META: Record<
 > = {
   insider: { icon: TrendingUp, label: 'Insider', color: 'text-teal-300', bg: 'bg-teal-400/15' },
   institution: { icon: Building2, label: 'Institution', color: 'text-sky-300', bg: 'bg-sky-400/15' },
-  polymarket: { icon: BarChart3, label: 'Polymarket', color: 'text-violet-300', bg: 'bg-violet-400/15' },
+  technicals: { icon: LineChart, label: 'Technicals', color: 'text-emerald-300', bg: 'bg-emerald-400/15' },
   news: { icon: Newspaper, label: 'News', color: 'text-amber-300', bg: 'bg-amber-400/15' },
+  polymarket: { icon: BarChart3, label: 'Prediction market', color: 'text-violet-300', bg: 'bg-violet-400/15' },
 };
 
 export function LoadingCards({ count = 3 }: { count?: number }) {
@@ -63,44 +65,46 @@ export function ErrorCard({ message, onRetry }: { message: string; onRetry?: () 
 
 interface SignalIconsProps {
   signals: SignalType[];
+  // Sources that errored out (as opposed to simply having nothing to say about this stock) —
+  // shown greyed out with a ✗ and a "failed to load" tooltip, and excluded from the score.
+  failed?: SignalType[];
   size?: 'sm' | 'md';
 }
 
-export function SignalIcons({ signals, size = 'sm' }: SignalIconsProps) {
+export function SignalIcons({ signals, failed = [], size = 'sm' }: SignalIconsProps) {
   const dim = size === 'sm' ? 'h-5 w-5' : 'h-6 w-6';
   const iconDim = size === 'sm' ? 'h-3 w-3' : 'h-3.5 w-3.5';
   const total = Object.keys(SIGNAL_META).length;
   return (
     <div className="flex items-center gap-1.5">
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-1.5">
         {(Object.keys(SIGNAL_META) as SignalType[]).map((type) => {
           const meta = SIGNAL_META[type];
           const Icon = meta.icon;
           const active = signals.includes(type);
-          if (!active) {
-            return (
-              <div
-                key={type}
-                title={`${meta.label}: no data`}
-                className={`${dim} flex items-center justify-center rounded-full bg-ink-700/40 text-ink-600`}
-              >
-                <Icon className={iconDim} />
-              </div>
-            );
-          }
+          const didFail = !active && failed.includes(type);
           return (
             <div
               key={type}
-              title={`${meta.label}: active`}
-              className={`${dim} flex items-center justify-center rounded-full ${meta.bg} ${meta.color}`}
+              title={`${meta.label}: ${active ? 'firing ✓' : didFail ? 'failed to load ✗ — excluded from score' : 'no signal ✗'}`}
+              className="flex flex-col items-center gap-px"
             >
-              <Icon className={iconDim} />
+              <div
+                className={`${dim} flex items-center justify-center rounded-full ${
+                  active ? `${meta.bg} ${meta.color}` : didFail ? 'bg-ink-800/60 text-ink-700' : 'bg-ink-700/40 text-ink-600'
+                }`}
+              >
+                <Icon className={iconDim} />
+              </div>
+              <span className={`text-[9px] font-bold leading-none ${active ? 'text-bull-400' : didFail ? 'text-ink-700' : 'text-ink-600'}`}>
+                {active ? '✓' : '✗'}
+              </span>
             </div>
           );
         })}
       </div>
       <span className="text-2xs font-medium text-ink-500">
-        {signals.length}/{total}
+        {signals.length}/{total} signals
       </span>
     </div>
   );
@@ -186,5 +190,52 @@ export function TrendArrow({ direction }: { direction: 'up' | 'down' }) {
     <TrendingUp className="h-3.5 w-3.5 text-bull-400" />
   ) : (
     <TrendingDown className="h-3.5 w-3.5 text-bear-400" />
+  );
+}
+
+// "13F data: Q2 2026 — 3 months old", coloured by age. `asOf` is the date the data describes.
+export function FreshnessBadge({
+  label,
+  asOf,
+  amberDays,
+  redDays,
+  suffix = 'old',
+  className = '',
+}: {
+  label: string;
+  asOf: string | Date;
+  amberDays: number;
+  redDays: number;
+  suffix?: string;
+  className?: string;
+}) {
+  const level: FreshnessLevel = levelFor(ageDays(asOf), amberDays, redDays);
+  return (
+    <span
+      title={`As of ${new Date(asOf).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`}
+      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-2xs font-medium ${LEVEL_CLASS[level]} ${className}`}
+    >
+      {label} — {ageLabel(asOf)} {suffix}
+    </span>
+  );
+}
+
+export function FailedBadge({ label, className = '' }: { label: string; className?: string }) {
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded-full border border-ink-700 bg-ink-800/80 px-2 py-0.5 text-2xs font-medium text-ink-500 ${className}`}
+    >
+      {label} — Failed to load
+    </span>
+  );
+}
+
+export function SampleBadge({ className = '' }: { className?: string }) {
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded-full border border-warn-500/30 bg-warn-500/10 px-2 py-0.5 text-2xs font-medium text-warn-300 ${className}`}
+    >
+      Sample — not scored
+    </span>
   );
 }

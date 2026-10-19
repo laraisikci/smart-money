@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { TICKERS } from '../data/tickers.js';
 import { resolveCik } from '../lib/cikResolver.js';
 import { fetchInsiderTradesForTicker } from '../lib/insiderFetch.js';
+import { fetchAmfInsiderTrades } from '../lib/amfPdmr.js';
 import type { InsiderTrade } from '../types.js';
 
 const RESPONSE_CACHE_TTL_MS = 2 * 60 * 60_000; // 2h, per spec — request coalescing below (see
@@ -11,9 +12,20 @@ const RESPONSE_CACHE_TTL_MS = 2 * 60 * 60_000; // 2h, per spec — request coale
 // requests each independently kicking off a full scan.
 const TICKER_BATCH_SIZE = 20;
 
+// Per-source status for the EU side, so the Insiders tab can say honestly what it covers (and
+// show a failed source as failed, rather than quietly showing fewer trades).
+export interface EuCoverage {
+  amf: { ok: boolean; filingsListed: number; filingsMatched: number; trades: number; error?: string };
+}
+
 interface ResponseCacheEntry {
   expires: number;
-  value: { data: InsiderTrade[]; generatedAt: string; coverage: { resolved: string[]; unresolved: string[] } };
+  value: {
+    data: InsiderTrade[];
+    generatedAt: string;
+    coverage: { resolved: string[]; unresolved: string[] };
+    euCoverage: EuCoverage;
+  };
 }
 let responseCache: ResponseCacheEntry | null = null;
 
@@ -24,6 +36,12 @@ function chunk<T>(items: T[], size: number): T[][] {
 }
 
 async function computeInsiders(): Promise<ResponseCacheEntry['value']> {
+  // EU PDMR (AMF France) runs alongside the SEC scan rather than after it, so it adds no latency
+  // to the cold path — and a failure there leaves the SEC results untouched.
+  const amfPromise = fetchAmfInsiderTrades().then(
+    (r) => ({ ok: true as const, ...r }),
+    (err: unknown) => ({ ok: false as const, error: String(err), trades: [] as InsiderTrade[], filingsListed: 0, filingsMatched: 0 }),
+  );
   const resolved: string[] = [];
   const unresolved: string[] = [];
   const results: InsiderTrade[][] = [];
@@ -50,11 +68,26 @@ async function computeInsiders(): Promise<ResponseCacheEntry['value']> {
     results.push(...batchResults);
   }
 
-  const data = results
-    .flat()
-    .sort((a, b) => new Date(b.filingDate).getTime() - new Date(a.filingDate).getTime());
+  const amf = await amfPromise;
 
-  return { data, generatedAt: new Date().toISOString(), coverage: { resolved, unresolved } };
+  const data = [...results.flat(), ...amf.trades].sort(
+    (a, b) => new Date(b.filingDate).getTime() - new Date(a.filingDate).getTime(),
+  );
+
+  return {
+    data,
+    generatedAt: new Date().toISOString(),
+    coverage: { resolved, unresolved },
+    euCoverage: {
+      amf: {
+        ok: amf.ok,
+        filingsListed: amf.filingsListed,
+        filingsMatched: amf.filingsMatched,
+        trades: amf.trades.length,
+        ...(amf.ok ? {} : { error: amf.error }),
+      },
+    },
+  };
 }
 
 // If a request arrives while a computation is already running (e.g. right after the cache

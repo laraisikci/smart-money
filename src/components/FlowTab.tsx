@@ -19,7 +19,7 @@ import {
   type FlowSignal,
 } from '@/lib/optionsFlow';
 import { SAMPLE_EU_OPTIONS_FLOW } from '@/data/sampleOptionsFlow';
-import { LoadingCards, ErrorCard } from '@/components/ui';
+import { LoadingCards, ErrorCard, SampleBadge } from '@/components/ui';
 import { formatDate } from '@/lib/format';
 
 type FlowFilter = 'ALL' | 'CALLS' | 'PUTS' | 'EU' | 'HIGH_VOLUME';
@@ -100,6 +100,7 @@ function FlowItemCard({ item, signal, convictionScore }: { item: OptionActivity;
           <div className="flex items-center gap-2">
             <span className="font-mono text-sm font-bold text-ink-50">{item.ticker}</span>
             {item.sample && <span className="text-sm">🇪🇺</span>}
+            {item.sample && <SampleBadge />}
             <span
               className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-2xs font-semibold ${
                 item.type === 'CALL' ? 'text-bull-400 bg-bull-500/15 border-bull-500/30' : 'text-bear-400 bg-bear-500/15 border-bear-500/30'
@@ -178,6 +179,7 @@ export function FlowTab() {
   const institutions = useApi(api.institutions, 'institutions');
   const polymarket = useApi(api.markets, 'markets');
   const news = useApi(api.news, 'news');
+  const coreTechnicals = useApi(api.coreTechnicals, 'technicals');
 
   const newsByTicker = useMemo(() => {
     const map = new Map<string, NewsHeadline[]>();
@@ -196,8 +198,9 @@ export function FlowTab() {
         institutions: institutions.data?.data ?? [],
         polymarket: polymarket.data?.data ?? [],
         news: allHeadlines,
+      technicals: coreTechnicals.data?.data,
       }),
-    [insiders.data, institutions.data, polymarket.data, allHeadlines],
+    [insiders.data, institutions.data, polymarket.data, allHeadlines, coreTechnicals.data],
   );
   const convictionByTicker = useMemo(() => new Map(convictionResults.map((r) => [r.ticker, r])), [convictionResults]);
 

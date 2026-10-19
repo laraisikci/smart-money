@@ -19,9 +19,7 @@ function round(n: number, decimals = 2): number {
 // were checked directly against the live API and return real data:
 //   - FM/D.U2.EUR.4F.KR.MRR_FR.LEV — ECB main refinancing operations fixed rate, the figure
 //     financial media actually mean by "the ECB interest rate"
-//   - ICP/M.U2.N.000000.4.ANR — HICP all-items, euro area, annual rate (Eurostat/ECB inflation)
 const ECB_RATE_SERIES = 'FM/D.U2.EUR.4F.KR.MRR_FR.LEV';
-const ECB_INFLATION_SERIES = 'ICP/M.U2.N.000000.4.ANR';
 
 interface SdmxResponse {
   dataSets: { series: Record<string, { observations: Record<string, [number, ...unknown[]]> }> }[];
@@ -77,9 +75,29 @@ async function fetchEcbRate(): Promise<MacroIndicator> {
   };
 }
 
+// Euro-area HICP annual inflation rate, from Eurostat's dissemination API. This replaces the ECB
+// ICP series the card originally used: that series (and Eurostat's older prc_hicp_manr) stopped
+// at 2025-12 when HICP moved to ECOICOP ver. 2 (new dataset prc_hicp_minr, base 2025=100,
+// coicop18 dimension) — which left the card showing "1.9%, inflation cooling" from Dec 2025 when
+// the live figure had risen to 3.8%. Verified directly against the live API.
+interface EurostatJsonStat {
+  value?: Record<string, number>;
+  dimension: { time: { category: { index: Record<string, number> } } };
+}
+
 async function fetchInflation(): Promise<MacroIndicator> {
-  const obs = await fetchEcbSeries(ECB_INFLATION_SERIES, 2);
-  if (obs.length < 2) throw new Error('No ECB inflation data');
+  const data = await cachedFetchJson<EurostatJsonStat>(
+    'https://ec.europa.eu/eurostat/api/dissemination/statistics/1.0/data/prc_hicp_minr?format=JSON&lang=EN&geo=EA&coicop18=TOTAL&unit=RCH_A&sinceTimePeriod=2025-10',
+    CACHE_TTL_MS,
+  );
+  const periodByIndex = new Map<number, string>(
+    Object.entries(data.dimension.time.category.index).map(([period, idx]) => [idx, period]),
+  );
+  const obs = Object.entries(data.value ?? {})
+    .map(([idx, value]) => ({ period: periodByIndex.get(Number(idx)) ?? '', value }))
+    .filter((o) => o.period && Number.isFinite(o.value))
+    .sort((a, b) => a.period.localeCompare(b.period));
+  if (obs.length < 2) throw new Error('No Eurostat HICP data');
   const previous = obs[obs.length - 2];
   const latest = obs[obs.length - 1];
   const change = round(latest.value - previous.value);
@@ -98,8 +116,8 @@ async function fetchInflation(): Promise<MacroIndicator> {
         : change < 0
           ? 'Inflation cooling — supports the case for rate cuts'
           : 'Inflation steady — no fresh signal for ECB policy',
-    asOf: latest.date,
-    source: 'ECB (HICP, annual rate)',
+    asOf: latest.period,
+    source: 'Eurostat (HICP, euro area, annual rate)',
   };
 }
 
@@ -195,6 +213,8 @@ async function fetchBrent(): Promise<MacroIndicator> {
   };
 }
 
+const VIX_SPIKE_PCT = 20;
+
 async function fetchVix(): Promise<MacroIndicator> {
   const q = await fetchYahooQuote('^VIX');
   const change = round(q.value - q.previousValue);
@@ -207,12 +227,16 @@ async function fetchVix(): Promise<MacroIndicator> {
     change,
     changePercent: round((change / q.previousValue) * 100, 2),
     goodForMarkets: change === 0 ? null : change < 0,
+    // A big one-day jump matters more than the absolute level: a VIX of 20 that is up 30% on the
+    // day is a volatility event, not "moderate, no strong risk signal".
     interpretation:
-      q.value >= 25
-        ? 'Elevated volatility — risk-off, defensive sectors favored'
-        : q.value <= 15
-          ? 'Low volatility — risk-on environment'
-          : 'Moderate volatility — no strong risk signal',
+      (change / q.previousValue) * 100 > VIX_SPIKE_PCT
+        ? 'Volatility spike — elevated risk regardless of absolute level'
+        : q.value >= 25
+          ? 'Elevated volatility — risk-off, defensive sectors favored'
+          : q.value <= 15
+            ? 'Low volatility — risk-on environment'
+            : 'Moderate volatility — no strong risk signal',
     asOf: q.asOf,
     source: 'Yahoo Finance (^VIX)',
   };

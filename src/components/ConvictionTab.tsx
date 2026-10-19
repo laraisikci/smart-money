@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Activity, ChevronRight, Calendar, Globe2 } from 'lucide-react';
 import type {
   ConvictionResult,
+  SignalType,
   Sector,
   NewsHeadline,
   InstitutionalPosition,
@@ -10,16 +11,21 @@ import type {
   AnalyzeResponse,
 } from '@/types';
 import { SECTORS } from '@/types';
-import { computeConviction, getSectorTopPick } from '@/lib/conviction';
+import { computeConviction, getSectorTopPick, isHighConviction } from '@/lib/conviction';
+import { recordScores, getAllHistoryInfo, type ScoreHistoryInfo } from '@/lib/scoreHistory';
+import { quarterEnd, THIRTEEN_F_AMBER_DAYS, THIRTEEN_F_RED_DAYS } from '@/lib/freshness';
+import { trendLabel, distanceFrom52wHigh, currencySymbol, TREND_STYLE } from '@/lib/cardStats';
 import { applyConvictionCap, evaluateSignalAlignment } from '@/lib/signalConflict';
 import { api } from '@/lib/api';
 import { useApi } from '@/lib/useApi';
 import { getEarningsDate, daysUntilEarnings } from '@/data/earnings';
 import { registerAdHocTicker, isTrackedTicker } from '@/data/tickers';
-import { SignalIcons, MarketTag, TrendArrow, SentimentBadge, LoadingCards, ErrorCard } from '@/components/ui';
+import { SignalIcons, MarketTag, TrendArrow, SentimentBadge, LoadingCards, ErrorCard, FreshnessBadge, FailedBadge } from '@/components/ui';
 import { WatchlistStarButton } from '@/components/WatchlistStar';
 import { TickerDetailDrawer } from '@/components/TickerDetailDrawer';
 import { SearchBar } from '@/components/SearchBar';
+import { TrackedUniverseModal } from '@/components/TrackedUniverseModal';
+import { TICKERS } from '@/data/tickers';
 
 type MarketFilter = 'ALL' | 'EU' | 'US';
 const MARKET_FILTERS: { label: string; value: MarketFilter }[] = [
@@ -39,6 +45,7 @@ export function ConvictionTab() {
   // Defaults to EU Only per how this app is actually used (Barcelona-based investing).
   const [marketFilter, setMarketFilter] = useState<MarketFilter>('EU');
   const [confirmationFilter, setConfirmationFilter] = useState<ConfirmationFilter>('ALL');
+  const [universeOpen, setUniverseOpen] = useState(false);
   const insiders = useApi(api.insiders, 'insiders');
   const institutions = useApi(api.institutions, 'institutions');
   const polymarket = useApi(api.markets, 'markets');
@@ -59,6 +66,18 @@ export function ConvictionTab() {
   // to decide when it's safe to show a terminal "nothing here" message; individual sections
   // render progressively from whatever has actually landed, they don't wait on this.
   const settled = !loading;
+
+  // Sources that errored (vs. simply having nothing on a given stock): shown greyed out with a ✗
+  // on every card and excluded from the score — they never contribute silently.
+  const failedSources = useMemo<SignalType[]>(() => {
+    const out: SignalType[] = [];
+    if (insiders.error) out.push('insider');
+    if (institutions.error) out.push('institution');
+    if (polymarket.error) out.push('polymarket');
+    if (news.error) out.push('news');
+    if (coreTechnicals.error) out.push('technicals');
+    return out;
+  }, [insiders.error, institutions.error, polymarket.error, news.error, coreTechnicals.error]);
 
   // Search & watchlist: results reached this way live outside the pre-tracked TICKERS universe,
   // so they get their own fetch (/api/search/analyze) rather than the bulk endpoints above. Kept
@@ -138,8 +157,9 @@ export function ConvictionTab() {
       institutions: [...(institutions.data?.data ?? []), ...adhocInstitutions],
       polymarket: polymarket.data?.data ?? [],
       news: [...allHeadlines, ...adhocNews],
+      technicals: coreTechByTicker,
     });
-  }, [insiders.data, institutions.data, polymarket.data, allHeadlines, adhocInsiders, adhocInstitutions, adhocNews]);
+  }, [insiders.data, institutions.data, polymarket.data, allHeadlines, adhocInsiders, adhocInstitutions, adhocNews, coreTechByTicker]);
 
   // Applies the technical-breakdown cap and re-sorts, so a capped stock actually drops out of
   // Top 3 / sector picks rather than just displaying a lower number while still ranking as if
@@ -151,6 +171,29 @@ export function ConvictionTab() {
       .map((r) => ({ ...r, totalScore: applyConvictionCap(r.totalScore, coreTechByTicker[r.ticker]) }))
       .sort((a, b) => b.totalScore - a.totalScore);
   }, [allResults, coreTechByTicker]);
+
+  // Daily score history (localStorage). Only recorded once the sources that carry real weight have
+  // actually loaded — a half-loaded or failed-source score would put a misleading point in the
+  // trend line. Prediction markets (5% weight) are allowed to be missing.
+  const latest13fQuarter = useMemo(() => {
+    const quarters = (institutions.data?.data ?? []).map((p) => p.quarter).filter((q) => quarterEnd(q));
+    quarters.sort((a, b) => (quarterEnd(a)?.getTime() ?? 0) - (quarterEnd(b)?.getTime() ?? 0));
+    return quarters[quarters.length - 1] ?? null;
+  }, [institutions.data]);
+
+  const [historyVersion, setHistoryVersion] = useState(0);
+  const readyToRecord =
+    !!insiders.data && !!institutions.data && !!news.data && !!coreTechByTicker && cappedResults.length > 0;
+  useEffect(() => {
+    if (!readyToRecord) return;
+    recordScores(cappedResults);
+    setHistoryVersion((v) => v + 1);
+  }, [readyToRecord, cappedResults]);
+  const historyByTicker = useMemo(
+    () => getAllHistoryInfo(cappedResults),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [cappedResults, historyVersion],
+  );
 
   const results = useMemo(() => {
     let list = marketFilter === 'ALL' ? cappedResults : cappedResults.filter((r) => r.market === marketFilter);
@@ -242,6 +285,9 @@ export function ConvictionTab() {
           universe (see /api/search + /api/search/analyze). */}
       <div>
         <SearchBar onSelect={handleSearchSelect} />
+        <button onClick={() => setUniverseOpen(true)} className="mt-2 text-2xs font-medium text-teal-300 hover:text-teal-200">
+          View all {TICKERS.length} tracked stocks →
+        </button>
         {searchLoading && <p className="mt-2 text-2xs text-ink-500">Analyzing…</p>}
         {searchError && <p className="mt-2 text-2xs text-bear-400">{searchError}</p>}
       </div>
@@ -271,6 +317,54 @@ export function ConvictionTab() {
             {f.label}
           </button>
         ))}
+      </div>
+
+      {/* Data sources — when each last loaded, and which failed. A failed source is excluded from
+          every score above and shown here (and as a greyed ✗ on each card), never left as blank. */}
+      <div className="flex flex-wrap gap-1.5">
+        {insiders.error ? (
+          <FailedBadge label="Insiders" />
+        ) : (
+          insiders.data && <FreshnessBadge label="Insiders" asOf={insiders.data.generatedAt} amberDays={1} redDays={3} suffix="ago" />
+        )}
+        {institutions.error ? (
+          <FailedBadge label="13F" />
+        ) : (
+          institutions.data && (
+            <>
+              {latest13fQuarter && quarterEnd(latest13fQuarter) && (
+                <FreshnessBadge
+                  label={`13F data: ${latest13fQuarter}`}
+                  asOf={quarterEnd(latest13fQuarter) as Date}
+                  amberDays={THIRTEEN_F_AMBER_DAYS}
+                  redDays={THIRTEEN_F_RED_DAYS}
+                />
+              )}
+              {institutions.data.failedFunds.map((f) => (
+                <FailedBadge key={f} label={f} />
+              ))}
+            </>
+          )
+        )}
+        {news.error ? (
+          <FailedBadge label="News" />
+        ) : (
+          news.data && <FreshnessBadge label="News" asOf={news.data.generatedAt} amberDays={1} redDays={3} suffix="ago" />
+        )}
+        {polymarket.error ? (
+          <FailedBadge label="Prediction markets" />
+        ) : (
+          polymarket.data && (
+            <FreshnessBadge label="Prediction markets" asOf={polymarket.data.generatedAt} amberDays={1} redDays={3} suffix="ago" />
+          )
+        )}
+        {coreTechnicals.error ? (
+          <FailedBadge label="Technicals" />
+        ) : (
+          coreTechnicals.data && (
+            <FreshnessBadge label="Technicals" asOf={coreTechnicals.data.generatedAt} amberDays={1} redDays={3} suffix="ago" />
+          )
+        )}
       </div>
 
       {/* Only shown before anything has landed at all — once the first results render below,
@@ -307,6 +401,9 @@ export function ConvictionTab() {
                 institutions={institutionsByTicker.get(r.ticker) ?? []}
                 technicals={adhocAnalyses.get(r.ticker)?.technicals}
                 hasConflict={evaluateSignalAlignment(r, coreTechByTicker?.[r.ticker]).hasConflict}
+                stats={coreTechByTicker?.[r.ticker]}
+                history={historyByTicker.get(r.ticker)}
+                failed={failedSources}
                 onClick={() => setSelected(r)}
               />
             ))}
@@ -330,6 +427,9 @@ export function ConvictionTab() {
               institutions={institutionsByTicker.get(r.ticker) ?? []}
               technicals={adhocAnalyses.get(r.ticker)?.technicals}
               hasConflict={evaluateSignalAlignment(r, coreTechByTicker?.[r.ticker]).hasConflict}
+                stats={coreTechByTicker?.[r.ticker]}
+                history={historyByTicker.get(r.ticker)}
+                failed={failedSources}
               onClick={() => setSelected(r)}
             />
           ))}
@@ -354,6 +454,9 @@ export function ConvictionTab() {
                 institutions={institutionsByTicker.get(pick.ticker) ?? []}
                 technicals={adhocAnalyses.get(pick.ticker)?.technicals}
                 hasConflict={evaluateSignalAlignment(pick, coreTechByTicker?.[pick.ticker]).hasConflict}
+                stats={coreTechByTicker?.[pick.ticker]}
+                history={historyByTicker.get(pick.ticker)}
+                failed={failedSources}
                 onClick={() => setSelected(pick)}
               />
             );
@@ -367,6 +470,24 @@ export function ConvictionTab() {
         </div>
       )}
 
+      {universeOpen && (
+        <TrackedUniverseModal
+          onClose={() => setUniverseOpen(false)}
+          onSelect={(t) => {
+            setUniverseOpen(false);
+            void handleSearchSelect({
+              symbol: t.symbol,
+              name: t.name,
+              exchange: '',
+              market: t.market,
+              currency: t.currency,
+              sector: t.sector,
+              tracked: true,
+            });
+          }}
+        />
+      )}
+
       <TickerDetailDrawer
         result={selected}
         onClose={() => setSelected(null)}
@@ -377,6 +498,7 @@ export function ConvictionTab() {
         technicalsOverride={selectedIsAdhoc ? (selectedAdhoc?.technicals ?? null) : undefined}
         skipNewsFetch={selectedIsAdhoc}
         macro={macro.data?.data ?? []}
+        scoreHistory={selected ? historyByTicker.get(selected.ticker) : undefined}
       />
     </div>
   );
@@ -399,6 +521,69 @@ function EarningsBadge({ ticker }: { ticker: string }) {
 // Cards render an outer <div role="button"> rather than a native <button> so the watchlist star
 // (a real <button> of its own, with its own click handler) can nest inside without producing
 // invalid button-in-button markup.
+function formatDay(iso: string): string {
+  return new Date(`${iso}T00:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+}
+
+// "+12" green / "-8" red next to the score. Null until we hold an entry at least 7 days old —
+// shown as nothing rather than guessed at.
+function ScoreChange({ value, label }: { value: number | null | undefined; label: string }) {
+  if (value == null) return null;
+  const cls = value > 0 ? 'text-bull-400' : value < 0 ? 'text-bear-400' : 'text-ink-500';
+  return (
+    <span title={`${label} score change`} className={`font-mono text-2xs font-semibold ${cls}`}>
+      {value > 0 ? '+' : ''}
+      {value}
+    </span>
+  );
+}
+
+function FirstFlagged({ history }: { history: ScoreHistoryInfo | undefined }) {
+  if (!history) return null;
+  return (
+    <span
+      title={
+        history.trackingStartedHere
+          ? 'Score tracking began on this date in this browser — the stock may have been flagged earlier.'
+          : 'First day this stock appeared in the tracked universe with any signal.'
+      }
+      className="text-2xs text-ink-600"
+    >
+      {history.trackingStartedHere ? 'Tracking since' : 'First flagged'} {formatDay(history.firstFlagged)}
+    </span>
+  );
+}
+
+// Price, distance from the 52-week high, RSI and a single SMA200-based trend label — on the card
+// itself, so the analyst doesn't have to open every stock to see where it trades.
+function CardStats({ technicals, currency }: { technicals: TechnicalIndicators | undefined; currency: string }) {
+  if (!technicals) return null;
+  const dist = distanceFrom52wHigh(technicals);
+  const trend = trendLabel(technicals);
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-0.5 font-mono text-2xs text-ink-400">
+      <span className="font-semibold text-ink-200">
+        {currencySymbol(currency)}
+        {technicals.price.toFixed(2)}
+      </span>
+      {dist != null && <span>{dist >= -0.05 ? 'at 52w high' : `${dist.toFixed(0)}% from 52w high`}</span>}
+      {technicals.rsi14 != null && <span>RSI {technicals.rsi14.toFixed(0)}</span>}
+      {trend && <span className={`font-sans font-semibold ${TREND_STYLE[trend]}`}>{trend}</span>}
+    </div>
+  );
+}
+
+function HighConvictionBadge() {
+  return (
+    <span
+      title="Two or more independent signals agree and the score is 65+"
+      className="inline-flex items-center gap-1 rounded-full border border-teal-500/30 bg-teal-400/10 px-2 py-0.5 text-2xs font-semibold text-teal-300"
+    >
+      ⚡ High conviction
+    </span>
+  );
+}
+
 function SignalConflictBadge() {
   return (
     <span
@@ -418,6 +603,9 @@ function ConvictionCard({
   institutions,
   technicals,
   hasConflict,
+  stats,
+  history,
+  failed,
   onClick,
 }: {
   result: ConvictionResult;
@@ -427,6 +615,9 @@ function ConvictionCard({
   institutions: InstitutionalPosition[];
   technicals?: TechnicalIndicators | null;
   hasConflict?: boolean;
+  stats?: TechnicalIndicators;
+  history?: ScoreHistoryInfo;
+  failed: SignalType[];
   onClick: () => void;
 }) {
   return (
@@ -469,23 +660,30 @@ function ConvictionCard({
             technicals={technicals}
           />
           <div className="text-right">
-            <div className="font-mono text-2xl font-bold text-teal-300">{result.totalScore}</div>
+            <div className="flex items-baseline justify-end gap-1.5">
+              <ScoreChange value={history?.change7d} label="7-day" />
+              <span className="font-mono text-2xl font-bold text-teal-300">{result.totalScore}</span>
+            </div>
             <p className="text-2xs text-ink-500">conviction</p>
           </div>
         </div>
       </div>
 
+      <CardStats technicals={stats} currency={result.currency} />
+
       <div className="mt-3 flex items-center justify-between">
-        <SignalIcons signals={result.signalsActive} />
+        <SignalIcons signals={result.signalsActive} failed={failed} />
         <span className="rounded-full bg-ink-700/50 px-2 py-0.5 text-2xs font-medium text-ink-300">
           {result.sector}
         </span>
       </div>
 
       {/* Earnings badge + signal conflict warning */}
-      <div className="mt-2 flex flex-wrap gap-1.5">
+      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        {isHighConviction(result) && <HighConvictionBadge />}
         <EarningsBadge ticker={result.ticker} />
         {hasConflict && <SignalConflictBadge />}
+        <FirstFlagged history={history} />
       </div>
 
       {/* Signal breakdown */}
@@ -511,6 +709,9 @@ function SectorRow({
   institutions,
   technicals,
   hasConflict,
+  stats,
+  history,
+  failed,
   onClick,
 }: {
   sector: Sector;
@@ -519,6 +720,9 @@ function SectorRow({
   institutions: InstitutionalPosition[];
   technicals?: TechnicalIndicators | null;
   hasConflict?: boolean;
+  stats?: TechnicalIndicators;
+  history?: ScoreHistoryInfo;
+  failed: SignalType[];
   onClick: () => void;
 }) {
   return (
@@ -542,14 +746,18 @@ function SectorRow({
             <MarketTag market={result.market} currency={result.currency} />
           </div>
           <p className="truncate text-2xs text-ink-500">{result.name}</p>
+          <CardStats technicals={stats} currency={result.currency} />
           <div className="mt-1 flex flex-wrap items-center gap-1.5">
+            {isHighConviction(result) && <HighConvictionBadge />}
             <SentimentBadge headlines={headlines} />
             {hasConflict && <SignalConflictBadge />}
+            <FirstFlagged history={history} />
           </div>
         </div>
       </div>
       <div className="flex items-center gap-3">
-        <SignalIcons signals={result.signalsActive} />
+        <SignalIcons signals={result.signalsActive} failed={failed} />
+        <ScoreChange value={history?.change7d} label="7-day" />
         <span className="font-mono text-sm font-bold text-teal-300">{result.totalScore}</span>
         <WatchlistStarButton
           target={{ symbol: result.ticker, name: result.name, market: result.market, currency: result.currency, sector: result.sector }}

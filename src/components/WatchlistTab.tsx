@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Star, Trash2 } from 'lucide-react';
+import { Star, Trash2, Link2, Download, Upload } from 'lucide-react';
 import type { AnalyzeResponse, InstitutionalPosition, NewsHeadline, TechnicalIndicators, WatchlistEntry } from '@/types';
 import { api } from '@/lib/api';
 import { useApi } from '@/lib/useApi';
 import { computeConviction } from '@/lib/conviction';
 import { computeSectorPulse } from '@/lib/macroSectors';
 import { registerAdHocTicker, isTrackedTicker } from '@/data/tickers';
-import { getWatchlist, removeFromWatchlist } from '@/lib/watchlist';
+import { getWatchlist, removeFromWatchlist, setSnapshot } from '@/lib/watchlist';
+import { WatchlistShareModal, type ShareTab } from '@/components/WatchlistShareModal';
 import { buildWatchlistSnapshot } from '@/lib/watchlistSnapshot';
 import {
   computeSignalHealth,
@@ -19,12 +20,14 @@ import { MarketTag, LoadingCards, ErrorCard } from '@/components/ui';
 
 export function WatchlistTab() {
   const [watchlist, setWatchlist] = useState<WatchlistEntry[]>(() => getWatchlist());
+  const [shareTab, setShareTab] = useState<ShareTab | null>(null);
 
   const insiders = useApi(api.insiders, 'insiders');
   const institutions = useApi(api.institutions, 'institutions');
   const polymarket = useApi(api.markets, 'markets');
   const news = useApi(api.news, 'news');
   const macro = useApi(api.macro, 'macro');
+  const coreTechnicals = useApi(api.coreTechnicals, 'technicals');
 
   const loading = insiders.loading || institutions.loading || polymarket.loading || news.loading || macro.loading;
   const error = insiders.error || institutions.error || polymarket.error || news.error || macro.error;
@@ -89,9 +92,10 @@ export function WatchlistTab() {
       institutions: [...(institutions.data?.data ?? []), ...adhocInstitutions],
       polymarket: polymarket.data?.data ?? [],
       news: [...Array.from(newsByTicker.values()).flat(), ...adhocNews],
+      technicals: coreTechnicals.data?.data,
     });
     return new Map(results.map((r) => [r.ticker, r.totalScore]));
-  }, [insiders.data, institutions.data, polymarket.data, newsByTicker, adhocInsiders, adhocInstitutions, adhocNews]);
+  }, [insiders.data, institutions.data, polymarket.data, newsByTicker, adhocInsiders, adhocInstitutions, adhocNews, coreTechnicals.data]);
 
   const sectorPulses = useMemo(() => computeSectorPulse(macro.data?.data ?? []), [macro.data]);
 
@@ -109,11 +113,48 @@ export function WatchlistTab() {
     setWatchlist(removeFromWatchlist(symbol));
   }
 
+  // Tickers added by import / shared link have no add-time snapshot (nothing was live to capture).
+  // Take their baseline once, the first time the data they need has actually loaded.
+  useEffect(() => {
+    if (loading || !coreTechnicals.data) return;
+    const pending = watchlist.filter((w) => w.snapshotPending);
+    if (pending.length === 0) return;
+    let latest: WatchlistEntry[] | null = null;
+    for (const entry of pending) {
+      const technicals = currentTechnicalsFor(entry.symbol);
+      if (technicals === undefined) continue; // still loading
+      latest = setSnapshot(
+        entry.symbol,
+        buildWatchlistSnapshot({
+          convictionScore: convictionByTicker.get(entry.symbol) ?? 0,
+          technicals: technicals ?? null,
+          institutions: currentInstitutionsFor(entry.symbol),
+          news: currentNewsFor(entry.symbol),
+        }),
+      );
+    }
+    if (latest) setWatchlist(latest);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [watchlist, loading, coreTechnicals.data, trackedTechnicals, adhocData, convictionByTicker]);
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-2">
-        <Star className="h-5 w-5 text-teal-400" />
-        <h2 className="text-lg font-semibold text-ink-50">Watchlist</h2>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Star className="h-5 w-5 text-teal-400" />
+          <h2 className="text-lg font-semibold text-ink-50">Watchlist</h2>
+        </div>
+        <div className="flex gap-1.5">
+          <button onClick={() => setShareTab('export')} className="pill pill-idle shrink-0 gap-1.5">
+            <Download className="h-3 w-3" /> Export
+          </button>
+          <button onClick={() => setShareTab('import')} className="pill pill-idle shrink-0 gap-1.5">
+            <Upload className="h-3 w-3" /> Import
+          </button>
+          <button onClick={() => setShareTab('share')} className="pill pill-active shrink-0 gap-1.5">
+            <Link2 className="h-3 w-3" /> Share
+          </button>
+        </div>
       </div>
 
       {loading && watchlist.length > 0 && <LoadingCards count={Math.min(watchlist.length, 3)} />}
@@ -183,6 +224,15 @@ export function WatchlistTab() {
           );
         })}
       </div>
+
+      {shareTab && (
+        <WatchlistShareModal
+          entries={watchlist}
+          initialTab={shareTab}
+          onClose={() => setShareTab(null)}
+          onImported={() => setWatchlist(getWatchlist())}
+        />
+      )}
     </div>
   );
 }

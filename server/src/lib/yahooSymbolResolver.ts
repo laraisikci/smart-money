@@ -106,6 +106,13 @@ const YAHOO_SYMBOL_OVERRIDES: Record<string, string> = {
   AKZA: 'AKZA.AS',
   COL: 'COL.MC',
   ORX: 'ORSTED.CO',
+  // Pinned explicitly (each verified directly against Yahoo's chart API: live EUR price, primary
+  // listing) so a flagship name's resolution never rides on fuzzy company-name ranking.
+  MC: 'MC.PA', // LVMH Moët Hennessy - Louis Vuitton, Euronext Paris
+  AIR: 'AIR.PA', // Airbus SE, Euronext Paris
+  VOW3: 'VOW3.DE', // Volkswagen AG pref., Xetra
+  CBK: 'CBK.DE', // Commerzbank AG, Xetra
+  EOAN: 'EOAN.DE', // E.ON SE, Xetra — found unresolvable by the venue audit (DAX 40 member with no data)
 };
 
 // Logged once at module load so a deploy that isn't actually running this file's current

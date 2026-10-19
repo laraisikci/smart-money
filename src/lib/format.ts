@@ -48,3 +48,16 @@ export function timeAgo(iso: string): string {
   const years = Math.floor(diff / 365);
   return `${years}y ago`;
 }
+
+// Money in the currency a figure was reported in (SEC Form 4 = USD, AMF PDMR filings = mostly EUR).
+export function formatMoney(n: number, currency = 'USD'): string {
+  if (currency === 'EUR') return formatEuro(n);
+  if (currency === 'USD') return formatCurrency(n);
+  const body = formatCurrency(n).slice(1); // reuse the K/M/B scaling, swap the symbol
+  return `${currency} ${body}`;
+}
+
+export function priceText(n: number, currency = 'USD'): string {
+  const sym = currency === 'EUR' ? '€' : currency === 'USD' ? '$' : `${currency} `;
+  return `${sym}${n.toFixed(2)}`;
+}
